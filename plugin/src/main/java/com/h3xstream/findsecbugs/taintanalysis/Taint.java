@@ -22,9 +22,11 @@ import edu.umd.cs.findbugs.ba.AnalysisContext;
 import edu.umd.cs.findbugs.util.ClassName;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import org.apache.bcel.generic.ObjectType;
@@ -96,7 +98,11 @@ public class Taint {
         LF_ENCODED,
         QUOTE_ENCODED,
         APOSTROPHE_ENCODED,
-        LT_ENCODED
+        LT_ENCODED;
+
+        public static Tag[] INJECTION_SAFE_TAGS = {
+            XSS_SAFE, SQL_INJECTION_SAFE, COMMAND_INJECTION_SAFE,
+            LDAP_INJECTION_SAFE, XPATH_INJECTION_SAFE};
     }
     
     private State state;
@@ -352,7 +358,19 @@ public class Taint {
     public boolean addTag(Tag tag) {
         return tags.add(tag);
     }
-    
+
+
+    /**
+     * Adds specified taint tags to this fact or marks these tags to add
+     * if this fact acts like a derivation of taint transfer behaviour
+     *
+     * @param tagsCollection tags to add
+     * @return true if the set changed as a result of the call, false otherwise
+     */
+    public boolean addTags(Collection<Tag> tagsCollection) {
+        return tags.addAll(tagsCollection);
+    }
+
     /**
      * Checks whether the specified taint tag is present for this fact
      * 

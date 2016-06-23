@@ -18,6 +18,7 @@
 package com.h3xstream.findsecbugs.taintanalysis;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -34,10 +35,16 @@ public class TaintMethodSummary {
     private final Set<Integer> mutableStackIndices;
     private final boolean isConfigured;
     public static final TaintMethodSummary SAFE_SUMMARY;
+    public static final TaintMethodSummary NON_INJECTABLE_SUMMARY;
 
     static {
+        /* field preserved for backwards compatibility */
         SAFE_SUMMARY = new TaintMethodSummary(false);
         SAFE_SUMMARY.outputTaint = new Taint(Taint.State.SAFE);
+
+        NON_INJECTABLE_SUMMARY = new TaintMethodSummary(false);
+        NON_INJECTABLE_SUMMARY.outputTaint = new Taint(Taint.State.UNKNOWN);
+        NON_INJECTABLE_SUMMARY.outputTaint.addTags(Arrays.asList(Taint.Tag.INJECTION_SAFE_TAGS));
     }
 
     /**
@@ -150,7 +157,7 @@ public class TaintMethodSummary {
      * @return true if summary should be saved, false otherwise
      */
     public boolean isInformative() {
-        if (this == SAFE_SUMMARY) {
+        if (this == SAFE_SUMMARY || this == NON_INJECTABLE_SUMMARY) {
             // these are loaded automatically, do not need to store them
             return false;
         }
