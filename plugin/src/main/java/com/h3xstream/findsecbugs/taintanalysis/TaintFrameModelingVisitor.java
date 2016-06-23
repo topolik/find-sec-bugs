@@ -449,9 +449,6 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
     private TaintMethodSummary getMethodSummary(InvokeInstruction obj) {
         String signature = obj.getSignature(cpg);
         String returnType = getReturnType(signature);
-        if (SAFE_OBJECT_TYPES.contains(returnType)) {
-            return TaintMethodSummary.NON_INJECTABLE_SUMMARY;
-        }
         String className = getInstanceClassName(obj);
         String methodName = obj.getMethodName(cpg);
         String methodId = "." + methodName + signature;
@@ -462,6 +459,9 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         summary = getSuperMethodSummary(className, methodId);
         if (summary != null) {
             return summary;
+        }
+        if (SAFE_OBJECT_TYPES.contains(returnType)) {
+            return TaintMethodSummary.NON_INJECTABLE_SUMMARY;
         }
         if (Constants.CONSTRUCTOR_NAME.equals(methodName)
                 && !SAFE_OBJECT_TYPES.contains("L" + className + ";")) {
