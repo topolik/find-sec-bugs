@@ -38,7 +38,6 @@ public class TaintMethodSummary {
     public static final TaintMethodSummary NON_INJECTABLE_SUMMARY;
 
     static {
-        /* field preserved for backwards compatibility */
         SAFE_SUMMARY = new TaintMethodSummary(false);
         SAFE_SUMMARY.outputTaint = new Taint(Taint.State.SAFE);
 

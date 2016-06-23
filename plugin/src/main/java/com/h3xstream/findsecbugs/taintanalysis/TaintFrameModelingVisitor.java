@@ -69,6 +69,8 @@ import org.apache.bcel.generic.StoreInstruction;
 public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Taint, TaintFrame> {
 
     private static final Set<String> SAFE_OBJECT_TYPES;
+    private static final String SAFE_PRIMITIVES = "ZSIJFD";
+    private static final char VOID_TYPE = 'V';
     private static final Set<String> IMMUTABLE_OBJECT_TYPES;
     private static final Map<String, Taint.Tag> REPLACE_TAGS;
     private final MethodDescriptor methodDescriptor;
@@ -378,7 +380,6 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         }
     }
 
-
     @Override
     public void visitCHECKCAST(CHECKCAST obj) {
         // cast to a safe object type
@@ -460,10 +461,25 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         if (summary != null) {
             return summary;
         }
-        if (SAFE_OBJECT_TYPES.contains(returnType)) {
+
+        int arrayPos = returnType.lastIndexOf('[');
+        char returnTypeObjectType = returnType.charAt(arrayPos + 1);
+        boolean isMethodConstructor = Constants.CONSTRUCTOR_NAME.equals(methodName);
+
+        if (returnTypeObjectType == 'L') {
+            String returnTypeSignature = returnType.substring(arrayPos + 1);
+            if (SAFE_OBJECT_TYPES.contains(returnTypeSignature)) {
+                return TaintMethodSummary.NON_INJECTABLE_SUMMARY;
+            }
+        }
+        else if (!isMethodConstructor && SAFE_PRIMITIVES.indexOf(returnTypeObjectType) > -1) {
             return TaintMethodSummary.NON_INJECTABLE_SUMMARY;
         }
-        if (Constants.CONSTRUCTOR_NAME.equals(methodName)
+        if (!isMethodConstructor && returnTypeObjectType == VOID_TYPE) {
+            return TaintMethodSummary.SAFE_SUMMARY;
+        }
+
+        if (isMethodConstructor
                 && !SAFE_OBJECT_TYPES.contains("L" + className + ";")) {
             try {
                 int stackSize = getFrame().getNumArgumentsIncludingObjectInstance(obj, cpg);
