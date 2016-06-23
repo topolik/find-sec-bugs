@@ -27,6 +27,7 @@ import edu.umd.cs.findbugs.ba.generic.GenericSignatureParser;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
 import edu.umd.cs.findbugs.util.ClassName;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -401,8 +402,9 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         }
 
         try {
-            getFrame().popValue();
-            pushSafe();
+            Taint value = new Taint(getFrame().popValue());
+            value.addTags(Arrays.asList(Taint.Tag.INJECTION_SAFE_TAGS));
+            getFrame().pushValue(value);
         }
         catch (DataflowAnalysisException ex) {
             throw new InvalidBytecodeException("empty stack for checkcast", ex);
@@ -452,7 +454,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         String signature = obj.getSignature(cpg);
         String returnType = getReturnType(signature);
         if (SAFE_OBJECT_TYPES.contains(returnType)) {
-            return TaintMethodSummary.SAFE_SUMMARY;
+            return TaintMethodSummary.NON_INJECTABLE_SUMMARY;
         }
         String className = getInstanceClassName(obj);
         String methodName = obj.getMethodName(cpg);
