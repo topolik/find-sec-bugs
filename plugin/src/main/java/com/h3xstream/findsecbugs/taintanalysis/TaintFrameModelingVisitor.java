@@ -19,6 +19,13 @@ package com.h3xstream.findsecbugs.taintanalysis;
 
 import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
 import com.h3xstream.findsecbugs.common.ByteCode;
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.TaintMethodSummaryParser;
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.WithArgumentsCount;
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.WithFullMethodDescription;
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.WithMethodWildcard;
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.WithReturnTypeOnly;
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.WithSignatureWildcard;
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.WithStringArgument;
 import edu.umd.cs.findbugs.ba.AbstractFrameModelingVisitor;
 import edu.umd.cs.findbugs.ba.AnalysisContext;
 import edu.umd.cs.findbugs.ba.DataflowAnalysisException;
@@ -32,6 +39,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.apache.bcel.Constants;
@@ -124,6 +132,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         REPLACE_TAGS.put("\"", Taint.Tag.QUOTE_ENCODED);
         REPLACE_TAGS.put("'", Taint.Tag.APOSTROPHE_ENCODED);
         REPLACE_TAGS.put("<", Taint.Tag.LT_ENCODED);
+
     }
 
     /**
@@ -491,76 +500,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
     }
 
     private TaintMethodSummary getMethodSummary(String className, String methodName, String signature) {
-        TaintMethodSummary summary = null;
-
-        if (summary == null) {
-            // Matches calls with specific arguments or taint type
-            // Example: javax/servlet/http/HttpServletRequest.getAttribute("applicationConstant")@org/apache/jsp/edit_jsp.java:SAFE
-            // Example (do not modify Taint of SAFE argument): javax/servlet/http/HttpServletRequest.getAttribute(SAFE)@*:UNKNOWN
-            int argumentsNum = getFrame().getStackDepth() - 1;
-            if (argumentsNum > 0) {
-                StringBuffer sb = new StringBuffer(argumentsNum);
-
-                for (int i = argumentsNum - 1; i >= 0; i--) {
-                    try {
-                        Taint taint = getFrame().getStackValue(i);
-                        String value = taint.getConstantValue();
-                        if (value != null) {
-                            sb.append('"' + value + '"');
-                        }
-                        else {
-                            sb.append(taint.getState().name());
-                        }
-                        if (i > 0) {
-                            sb.append(',');
-                        }
-                    }
-                    catch (DataflowAnalysisException e) {
-                        assert false : e.getMessage();
-                    }
-                }
-
-                String methodDefinition = className + "." + methodName + "(" + sb.toString() + ")";
-                summary = methodSummaries.get(methodDefinition + "@" + methodDescriptor.getSlashedClassName());
-
-                if (summary == null) {
-                    summary = methodSummaries.get(methodDefinition + "@*");
-                }
-            }
-        }
-
-        if (summary == null) {
-            // Classic match - matches class definition with full signature
-            // Example: java/lang/String.valueOf(Z)Ljava/lang/String;:SAFE
-            String methodId = "." + methodName + signature;
-            summary = methodSummaries.get(className.concat(methodId));
-        }
-
-        String returnType = getReturnType(signature);
-
-        if (summary == null) {
-            // Matches all methods with same number of arguments, regardless of the argument type
-            // Example: java/lang/String.valueOf(1)Ljava/lang/String;
-            int argumentsNum = getFrame().getStackDepth() - 1;
-            summary = methodSummaries.get(className + "." + methodName + "(" + argumentsNum +")"+returnType);
-        }
-        if (summary == null) {
-            // Matches all methods with specified name
-            // Example: java/sql/ResultSet.getString(*)*:TAINTED
-            summary = methodSummaries.get(className + "." + methodName + "(*)*");
-        }
-        if (summary == null) {
-            // Matches all methods of a class
-            // Example: com/company/Constants.*(*)*:SAFE
-            summary = methodSummaries.get(className + ".*(*)*");
-        }
-        if (summary == null) {
-            // Matches specific return type
-            // Example: *.*(*)Lcom/company/ConstantEnum;:SAFE
-            summary = methodSummaries.get("*.*(*)" + returnType);
-        }
-
-        return summary;
+        return methodSummaries.getMethodSummary(className, methodName, signature, this);
     }
 
     private TaintMethodSummary getSummaryWithReplaceTags(
@@ -778,6 +718,10 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
 
     private TaintLocation getTaintLocation() {
         return new TaintLocation(methodDescriptor, getLocation().getHandle().getPosition());
+    }
+
+    public MethodDescriptor getMethodDescriptor() {
+        return methodDescriptor;
     }
 
     /**

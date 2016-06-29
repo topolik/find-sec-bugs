@@ -17,6 +17,14 @@
  */
 package com.h3xstream.findsecbugs.taintanalysis;
 
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.TaintMethodSummaryParser;
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.WithArgumentsCount;
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.WithFullMethodDescription;
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.WithMethodWildcard;
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.WithReturnTypeOnly;
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.WithSignatureWildcard;
+import com.h3xstream.findsecbugs.taintanalysis.methodsummary.WithStringArgument;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
@@ -24,7 +32,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.TreeSet;
-import java.util.regex.Pattern;
 
 /**
  * Map of taint summaries for all known methods
@@ -44,44 +51,15 @@ import java.util.regex.Pattern;
 public class TaintMethodSummaryMap extends HashMap<String, TaintMethodSummary> {
     
     private static final long serialVersionUID = 1L;
-    private static final List<Pattern> allowedMethodPatterns = new ArrayList<Pattern>();
-
+    private static final List<TaintMethodSummaryParser> METHOD_SUMMARY_PARSERS;
     static {
-        String classWithPackageRegex = "([a-z][a-z0-9]*\\/)*[A-Z][a-zA-Z0-9\\$]*";
-        String typeRegex = "(\\[)*((L" + classWithPackageRegex + ";)|B|C|D|F|I|J|S|Z)";
-        String returnRegex = "(V|(" + typeRegex + "))";
-        String methodRegex = "(([a-zA-Z][a-zA-Z0-9]*)|(<init>))";
-        String signatureRegex = "\\((" + typeRegex + ")*\\)" + returnRegex;
-
-        // javax/servlet/http/HttpServletRequest.getAttribute("applicationConstant")@org/apache/jsp/edit_jsp.java
-        // javax/servlet/http/HttpServletRequest.getAttribute(SAFE)@*
-        String methodWithStringArgumentsTheArgumentRegex = "\"[^\"]*\"";
-        String methodWithStringArgumentsTaintArgumentRegex = "(TAINTED|UNKNOWN|SAFE)";
-        String methodWithStringArgumentsSignatureRegex = "\\((" + methodWithStringArgumentsTheArgumentRegex + ",?|" + methodWithStringArgumentsTaintArgumentRegex + ",?)+\\)";
-        String methodWithStringArgumentsLocation = "@(\\*|.+)";
-        String methodWithStringArgumentsRegex = classWithPackageRegex + "\\." + methodRegex + methodWithStringArgumentsSignatureRegex + methodWithStringArgumentsLocation;
-        allowedMethodPatterns.add(Pattern.compile(methodWithStringArgumentsRegex));
-
-        // java/lang/String.valueOf(Z)Ljava/lang/String;
-        String fullMethodNameRegex = classWithPackageRegex + "\\." + methodRegex + signatureRegex;
-        allowedMethodPatterns.add(Pattern.compile(fullMethodNameRegex));
-
-        // java/lang/String.valueOf(1)Ljava/lang/String;
-        String methodWithArgumentCountSignatureRegex =  "\\([0-9]+\\)";
-        String methodWithArgumentCountRegex = classWithPackageRegex + "\\." + methodRegex + methodWithArgumentCountSignatureRegex  + returnRegex;
-        allowedMethodPatterns.add(Pattern.compile(methodWithArgumentCountRegex));
-
-        // java/sql/ResultSet.getString(*)*
-        String methodWildardsWithClassAndMethodRegex = classWithPackageRegex + "\\." + methodRegex + Pattern.quote("(*)*");
-        allowedMethodPatterns.add(Pattern.compile(methodWildardsWithClassAndMethodRegex));
-
-        // com/company/Constants.*(*)*
-        String methodWildcardsWithClassNameRegex = classWithPackageRegex + Pattern.quote(".*(*)*");
-        allowedMethodPatterns.add(Pattern.compile(methodWildcardsWithClassNameRegex));
-
-        // *.*(*)Lcom/company/ConstantEnum;:SAFE
-        String methodWildcardsWithReturnTypeRegex = Pattern.quote("*.*(*)") + returnRegex;
-        allowedMethodPatterns.add(Pattern.compile(methodWildcardsWithReturnTypeRegex));
+        METHOD_SUMMARY_PARSERS = new ArrayList<TaintMethodSummaryParser>(6);
+        METHOD_SUMMARY_PARSERS.add(new WithStringArgument());
+        METHOD_SUMMARY_PARSERS.add(new WithFullMethodDescription());
+        METHOD_SUMMARY_PARSERS.add(new WithArgumentsCount());
+        METHOD_SUMMARY_PARSERS.add(new WithSignatureWildcard());
+        METHOD_SUMMARY_PARSERS.add(new WithMethodWildcard());
+        METHOD_SUMMARY_PARSERS.add(new WithReturnTypeOnly());
     }
 
     /**
@@ -94,6 +72,22 @@ public class TaintMethodSummaryMap extends HashMap<String, TaintMethodSummary> {
         for (String key : keys) {
             output.println(key + ":" + get(key));
         }
+    }
+
+    public TaintMethodSummary getMethodSummary(String className, String methodName, String signature, TaintFrameModelingVisitor taintFrameModelingVisitor) {
+        for (TaintMethodSummaryParser parser : METHOD_SUMMARY_PARSERS) {
+            String key = parser.parse(className, methodName, signature, taintFrameModelingVisitor);
+            if (key == null || key.isEmpty()) {
+                continue;
+            }
+
+            TaintMethodSummary summary = get(key);
+            if (summary != null) {
+                return summary;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -110,8 +104,8 @@ public class TaintMethodSummaryMap extends HashMap<String, TaintMethodSummary> {
             @Override
             public void receiveTaintMethodSummary(String fullMethod, TaintMethodSummary taintMethodSummary) {
                 boolean matches = false;
-                for (Pattern pattern : allowedMethodPatterns) {
-                    matches = matches || pattern.matcher(fullMethod).matches();
+                for(TaintMethodSummaryParser parser : METHOD_SUMMARY_PARSERS) {
+                    matches = matches || parser.accepts(fullMethod);
                 }
                 if (!matches) {
                     throw new IllegalArgumentException("Invalid full method name " + fullMethod + " configured");
