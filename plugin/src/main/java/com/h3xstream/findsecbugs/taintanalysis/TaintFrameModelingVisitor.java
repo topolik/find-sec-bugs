@@ -456,12 +456,11 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         String returnType = getReturnType(signature);
         String className = getInstanceClassName(obj);
         String methodName = obj.getMethodName(cpg);
-        String methodId = "." + methodName + signature;
-        TaintMethodSummary summary = methodSummaries.get(className.concat(methodId));
+        TaintMethodSummary summary = getMethodSummary(className, methodName, signature);
         if (summary != null) {
             return getSummaryWithReplaceTags(summary, className, methodName);
         }
-        summary = getSuperMethodSummary(className, methodId);
+        summary = getSuperMethodSummary(className, methodName, signature);
         if (summary != null) {
             return summary;
         }
@@ -494,7 +493,80 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         }
         return null;
     }
-    
+
+    private TaintMethodSummary getMethodSummary(String className, String methodName, String signature) {
+        TaintMethodSummary summary = null;
+
+        if (summary == null) {
+            // Matches calls with specific arguments or taint type
+            // Example: javax/servlet/http/HttpServletRequest.getAttribute("applicationConstant")@org/apache/jsp/edit_jsp.java:SAFE
+            // Example (do not modify Taint of SAFE argument): javax/servlet/http/HttpServletRequest.getAttribute(SAFE)@*:UNKNOWN
+            int argumentsNum = getFrame().getStackDepth() - 1;
+            if (argumentsNum > 0) {
+                StringBuffer sb = new StringBuffer(argumentsNum);
+
+                for (int i = argumentsNum - 1; i >= 0; i--) {
+                    try {
+                        Taint taint = getFrame().getStackValue(i);
+                        String value = taint.getConstantValue();
+                        if (value != null) {
+                            sb.append('"' + value + '"');
+                        }
+                        else {
+                            sb.append(taint.getState().name());
+                        }
+                        if (i > 0) {
+                            sb.append(',');
+                        }
+                    }
+                    catch (DataflowAnalysisException e) {
+                        assert false : e.getMessage();
+                    }
+                }
+
+                String methodDefinition = className + "." + methodName + "(" + sb.toString() + ")";
+                summary = methodSummaries.get(methodDefinition + "@" + methodDescriptor.getSlashedClassName());
+
+                if (summary == null) {
+                    summary = methodSummaries.get(methodDefinition + "@*");
+                }
+            }
+        }
+
+        if (summary == null) {
+            // Classic match - matches class definition with full signature
+            // Example: java/lang/String.valueOf(Z)Ljava/lang/String;:SAFE
+            String methodId = "." + methodName + signature;
+            summary = methodSummaries.get(className.concat(methodId));
+        }
+
+        String returnType = getReturnType(signature);
+
+        if (summary == null) {
+            // Matches all methods with same number of arguments, regardless of the argument type
+            // Example: java/lang/String.valueOf(1)Ljava/lang/String;
+            int argumentsNum = getFrame().getStackDepth() - 1;
+            summary = methodSummaries.get(className + "." + methodName + "(" + argumentsNum +")"+returnType);
+        }
+        if (summary == null) {
+            // Matches all methods with specified name
+            // Example: java/sql/ResultSet.getString(*)*:TAINTED
+            summary = methodSummaries.get(className + "." + methodName + "(*)*");
+        }
+        if (summary == null) {
+            // Matches all methods of a class
+            // Example: com/company/Constants.*(*)*:SAFE
+            summary = methodSummaries.get(className + ".*(*)*");
+        }
+        if (summary == null) {
+            // Matches specific return type
+            // Example: *.*(*)Lcom/company/ConstantEnum;:SAFE
+            summary = methodSummaries.get("*.*(*)" + returnType);
+        }
+
+        return summary;
+    }
+
     private TaintMethodSummary getSummaryWithReplaceTags(
             TaintMethodSummary summary, String className, String methodName) {
         if (!"java/lang/String".equals(className)) {
@@ -545,7 +617,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         return ClassName.toSlashedClassName(dottedClassName);
     }
     
-    private TaintMethodSummary getSuperMethodSummary(String className, String methodId) {
+    private TaintMethodSummary getSuperMethodSummary(String className, String methodName, String signature) {
         try {
             if (className.endsWith("]")) {
                 // not a real class
@@ -553,22 +625,21 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             }
             JavaClass javaClass = Repository.lookupClass(className);
             assert javaClass != null;
-            TaintMethodSummary summary = getSuperMethodSummary(javaClass.getSuperClasses(), methodId);
+            TaintMethodSummary summary = getSuperMethodSummary(javaClass.getSuperClasses(), methodName, signature);
             if (summary != null) {
                 return summary;
             }
-            return getSuperMethodSummary(javaClass.getAllInterfaces(), methodId);
+            return getSuperMethodSummary(javaClass.getAllInterfaces(), methodName, signature);
         } catch (ClassNotFoundException ex) {
             AnalysisContext.reportMissingClass(ex);
             return null;
         }
     }
     
-    private TaintMethodSummary getSuperMethodSummary(JavaClass[] javaClasses, String method) {
+    private TaintMethodSummary getSuperMethodSummary(JavaClass[] javaClasses, String methodName, String signature) {
         assert javaClasses != null;
         for (JavaClass classOrInterface : javaClasses) {
-            String fullMethodName = classOrInterface.getClassName().replace('.', '/').concat(method);
-            TaintMethodSummary summary = methodSummaries.get(fullMethodName);
+            TaintMethodSummary summary = getMethodSummary(classOrInterface.getClassName().replace('.', '/'), methodName, signature);
             if (summary != null) {
                 return summary;
             }
@@ -737,9 +808,9 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         String className = methodDescriptor.getSlashedClassName();
         String methodId = "." + methodDescriptor.getName() + methodDescriptor.getSignature();
         if (analyzedMethodSummary.isInformative()
-                || getSuperMethodSummary(className, methodId) != null) {
+                || getSuperMethodSummary(className, methodDescriptor.getName(), methodDescriptor.getSignature()) != null) {
             String fullMethodName = className.concat(methodId);
-            if (!methodSummaries.containsKey(fullMethodName)) {
+            if (getMethodSummary(className, methodDescriptor.getName(), methodDescriptor.getSignature()) == null) {
                 // prefer configured summaries to derived
                 methodSummaries.put(fullMethodName, analyzedMethodSummary);
             }

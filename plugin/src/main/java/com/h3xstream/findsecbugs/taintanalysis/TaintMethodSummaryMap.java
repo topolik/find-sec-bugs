@@ -20,7 +20,9 @@ package com.h3xstream.findsecbugs.taintanalysis;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 
@@ -42,16 +44,44 @@ import java.util.regex.Pattern;
 public class TaintMethodSummaryMap extends HashMap<String, TaintMethodSummary> {
     
     private static final long serialVersionUID = 1L;
-    private static final Pattern fullMethodPattern;
-    
+    private static final List<Pattern> allowedMethodPatterns = new ArrayList<Pattern>();
+
     static {
         String classWithPackageRegex = "([a-z][a-z0-9]*\\/)*[A-Z][a-zA-Z0-9\\$]*";
         String typeRegex = "(\\[)*((L" + classWithPackageRegex + ";)|B|C|D|F|I|J|S|Z)";
         String returnRegex = "(V|(" + typeRegex + "))";
         String methodRegex = "(([a-zA-Z][a-zA-Z0-9]*)|(<init>))";
         String signatureRegex = "\\((" + typeRegex + ")*\\)" + returnRegex;
-        String fullMathodNameRegex = classWithPackageRegex + "\\." + methodRegex + signatureRegex;
-        fullMethodPattern = Pattern.compile(fullMathodNameRegex);
+
+        // javax/servlet/http/HttpServletRequest.getAttribute("applicationConstant")@org/apache/jsp/edit_jsp.java
+        // javax/servlet/http/HttpServletRequest.getAttribute(SAFE)@*
+        String methodWithStringArgumentsTheArgumentRegex = "\"[^\"]*\"";
+        String methodWithStringArgumentsTaintArgumentRegex = "(TAINTED|UNKNOWN|SAFE)";
+        String methodWithStringArgumentsSignatureRegex = "\\((" + methodWithStringArgumentsTheArgumentRegex + ",?|" + methodWithStringArgumentsTaintArgumentRegex + ",?)+\\)";
+        String methodWithStringArgumentsLocation = "@(\\*|.+)";
+        String methodWithStringArgumentsRegex = classWithPackageRegex + "\\." + methodRegex + methodWithStringArgumentsSignatureRegex + methodWithStringArgumentsLocation;
+        allowedMethodPatterns.add(Pattern.compile(methodWithStringArgumentsRegex));
+
+        // java/lang/String.valueOf(Z)Ljava/lang/String;
+        String fullMethodNameRegex = classWithPackageRegex + "\\." + methodRegex + signatureRegex;
+        allowedMethodPatterns.add(Pattern.compile(fullMethodNameRegex));
+
+        // java/lang/String.valueOf(1)Ljava/lang/String;
+        String methodWithArgumentCountSignatureRegex =  "\\([0-9]+\\)";
+        String methodWithArgumentCountRegex = classWithPackageRegex + "\\." + methodRegex + methodWithArgumentCountSignatureRegex  + returnRegex;
+        allowedMethodPatterns.add(Pattern.compile(methodWithArgumentCountRegex));
+
+        // java/sql/ResultSet.getString(*)*
+        String methodWildardsWithClassAndMethodRegex = classWithPackageRegex + "\\." + methodRegex + Pattern.quote("(*)*");
+        allowedMethodPatterns.add(Pattern.compile(methodWildardsWithClassAndMethodRegex));
+
+        // com/company/Constants.*(*)*
+        String methodWildcardsWithClassNameRegex = classWithPackageRegex + Pattern.quote(".*(*)*");
+        allowedMethodPatterns.add(Pattern.compile(methodWildcardsWithClassNameRegex));
+
+        // *.*(*)Lcom/company/ConstantEnum;:SAFE
+        String methodWildcardsWithReturnTypeRegex = Pattern.quote("*.*(*)") + returnRegex;
+        allowedMethodPatterns.add(Pattern.compile(methodWildcardsWithReturnTypeRegex));
     }
 
     /**
@@ -79,7 +109,11 @@ public class TaintMethodSummaryMap extends HashMap<String, TaintMethodSummary> {
         new TaintMethodSummaryMapLoader().load(input, new TaintMethodSummaryMapLoader.TaintMethodSummaryReceiver() {
             @Override
             public void receiveTaintMethodSummary(String fullMethod, TaintMethodSummary taintMethodSummary) {
-                if (!fullMethodPattern.matcher(fullMethod).matches()) {
+                boolean matches = false;
+                for (Pattern pattern : allowedMethodPatterns) {
+                    matches = matches || pattern.matcher(fullMethod).matches();
+                }
+                if (!matches) {
                     throw new IllegalArgumentException("Invalid full method name " + fullMethod + " configured");
                 }
                 if (checkRewrite && containsKey(fullMethod)) {
