@@ -382,30 +382,40 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
 
     @Override
     public void visitCHECKCAST(CHECKCAST obj) {
-        // cast to a safe object type
-        boolean safeCast = false;
-
         ObjectType objectType = obj.getLoadClassType(cpg);
         if (objectType == null) {
             return;
         }
 
         String objectTypeSignature = objectType.getSignature();
-
         int arrayPos = objectTypeSignature.lastIndexOf('[');
-        if (objectTypeSignature.charAt(arrayPos + 1) == 'L') {
-            objectTypeSignature = objectTypeSignature.substring(arrayPos + 1);
-            safeCast = SAFE_OBJECT_TYPES.contains(objectTypeSignature);
-        }
+        boolean isPrimitiveType = objectTypeSignature.charAt(arrayPos + 1) != 'L';
 
-        if(!safeCast) {
+        if (isPrimitiveType) {
             return;
         }
+        objectTypeSignature = objectTypeSignature.substring(arrayPos + 1);
 
         try {
-            Taint value = new Taint(getFrame().popValue());
-            value.addTags(Arrays.asList(Taint.Tag.INJECTION_SAFE_TAGS));
-            getFrame().pushValue(value);
+            Taint value = null;
+            if (SAFE_OBJECT_TYPES.contains(objectTypeSignature)) {
+                value = new Taint(getFrame().getTopValue());
+                value.addTags(Arrays.asList(Taint.Tag.INJECTION_SAFE_TAGS));
+            }
+            else {
+                TaintMethodSummary methodSummary = methodSummaries.get("(" + objectTypeSignature + ")");
+
+                if (methodSummary != null) {
+                    value = getMethodTaint(methodSummary);
+                    // add possibility to propagate back, always index 0
+                    transferTaintToMutables(methodSummary, value);
+                }
+            }
+
+            if (value != null) {
+                getFrame().popValue();
+                getFrame().pushValue(value);
+            }
         }
         catch (DataflowAnalysisException ex) {
             throw new InvalidBytecodeException("empty stack for checkcast", ex);

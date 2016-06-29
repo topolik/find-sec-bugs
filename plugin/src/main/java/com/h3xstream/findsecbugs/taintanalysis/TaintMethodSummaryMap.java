@@ -82,6 +82,10 @@ public class TaintMethodSummaryMap extends HashMap<String, TaintMethodSummary> {
         // *.*(*)Lcom/company/ConstantEnum;:SAFE
         String methodWildcardsWithReturnTypeRegex = Pattern.quote("*.*(*)") + returnRegex;
         allowedMethodPatterns.add(Pattern.compile(methodWildcardsWithReturnTypeRegex));
+
+        // cast: (Lcom/company/ConstantEnum;):SAFE
+        String classCastRegex = "\\(" + typeRegex + "\\)";
+        allowedMethodPatterns.add(Pattern.compile(classCastRegex));
     }
 
     /**
