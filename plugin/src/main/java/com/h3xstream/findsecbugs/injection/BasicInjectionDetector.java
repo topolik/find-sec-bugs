@@ -18,12 +18,20 @@
 package com.h3xstream.findsecbugs.injection;
 
 import edu.umd.cs.findbugs.BugReporter;
+import edu.umd.cs.findbugs.SystemProperties;
+import edu.umd.cs.findbugs.ba.AnalysisContext;
+import edu.umd.cs.findbugs.io.IO;
 import edu.umd.cs.findbugs.util.ClassName;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.regex.Pattern;
+
 import org.apache.bcel.generic.ConstantPoolGen;
 import org.apache.bcel.generic.InstructionHandle;
 import org.apache.bcel.generic.InvokeInstruction;
@@ -41,6 +49,8 @@ public abstract class BasicInjectionDetector extends AbstractInjectionDetector {
 
     protected BasicInjectionDetector(BugReporter bugReporter) {
         super(bugReporter);
+
+        loadCustomConfigFiles();
     }
 
     @Override
@@ -76,6 +86,42 @@ public abstract class BasicInjectionDetector extends AbstractInjectionDetector {
                 addParsedInjectionPoint(fullMethodName, injectionPoint);
             }
         });
+    }
+
+    protected void loadCustomConfigFiles() {
+        // Example for Linux/Mac OS X:
+        // -Dfindsecbugs.injection.customconfigfile.SqlInjectionDetector="/tmp/sql-custom.txt|SQL_INJECTION_HIBERNATE:/tmp/sql2-custom.txt|SQL_INJECTION_HIBERNATE"
+        // Example for Windows:
+        // -Dfindsecbugs.injection.customconfigfile.SqlInjectionDetector="C:\Temp\sql-custom.txt|SQL_INJECTION_HIBERNATE;C:\Temp\sql2-custom.txt|SQL_INJECTION_HIBERNATE"
+        String customConfigFile = SystemProperties.getProperty("findsecbugs.injection.customconfigfile." + getClass().getSimpleName());
+        if (customConfigFile != null && !customConfigFile.isEmpty()) {
+            for (String configFile : customConfigFile.split(File.pathSeparator)) {
+                String[] injectionDefinition = configFile.split(Pattern.quote("|"));
+
+                if (injectionDefinition.length != 2 ||
+                    injectionDefinition[0].trim().isEmpty() ||
+                    injectionDefinition[1].trim().isEmpty()) {
+
+                    AnalysisContext.logError("Wrong injection config file definition: " + configFile + ". Syntax: fileName|bugType, example: sql-custom.txt|SQL_INJECTION_HIBERNATE");
+
+                    continue;
+                }
+
+                loadCustomSinks(injectionDefinition[0], injectionDefinition[1]);
+            }
+        }
+    }
+
+    protected void loadCustomSinks(String fileName, String bugType) {
+        InputStream stream = null;
+        try {
+            stream = new FileInputStream(fileName);
+            loadConfiguredSinks(stream, bugType);
+        } catch (IOException ex) {
+            AnalysisContext.logError("cannot load custom injection config method summaries", ex);
+        } finally {
+            IO.close(stream);
+        }
     }
 
     /**
