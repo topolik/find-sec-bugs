@@ -98,11 +98,12 @@ public class Taint {
         LF_ENCODED,
         QUOTE_ENCODED,
         APOSTROPHE_ENCODED,
-        LT_ENCODED;
+        LT_ENCODED,
+        CUSTOM_INJECTION_SAFE;
 
         public static Tag[] INJECTION_SAFE_TAGS = {
             XSS_SAFE, SQL_INJECTION_SAFE, COMMAND_INJECTION_SAFE,
-            LDAP_INJECTION_SAFE, XPATH_INJECTION_SAFE};
+            LDAP_INJECTION_SAFE, XPATH_INJECTION_SAFE, CUSTOM_INJECTION_SAFE};
     }
     
     private State state;
