@@ -26,6 +26,8 @@ import edu.umd.cs.findbugs.ba.AnalysisContext;
 import edu.umd.cs.findbugs.ba.ClassContext;
 import edu.umd.cs.findbugs.ba.DataflowAnalysisException;
 import edu.umd.cs.findbugs.util.ClassName;
+
+import java.io.*;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -44,7 +46,20 @@ import org.apache.bcel.generic.InvokeInstruction;
  * @author David Formanek (Y Soft Corporation, a.s.)
  */
 public abstract class AbstractInjectionDetector extends AbstractTaintDetector {
-    
+
+    static BufferedWriter writer = null;
+    static {
+        final String fileName = "derived-sinks.txt";
+        try {
+            writer = new BufferedWriter(new OutputStreamWriter(
+                    new FileOutputStream(fileName), "utf-8"));
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+
+    }
     protected final Map<String, Set<InjectionSink>> injectionSinks = new HashMap<String, Set<InjectionSink>>();
     private final Map<MethodAndSink, Taint> sinkTaints = new HashMap<MethodAndSink, Taint>();
     
@@ -66,6 +81,14 @@ public abstract class AbstractInjectionDetector extends AbstractTaintDetector {
         }
         for (InjectionSink injectionSink : injectionSinksToReport) {
             bugReporter.reportBug(injectionSink.generateBugInstance(false));
+        }
+        try {
+            for (Map.Entry<String, Set<InjectionSink>> injectionSink : injectionSinks.entrySet()) {
+                writer.append(injectionSink.getKey() + "\n");
+            }
+            writer.flush();
+        } catch (IOException ex) {
+            AnalysisContext.logError("cannot write derived sinks", ex);
         }
     }
     
