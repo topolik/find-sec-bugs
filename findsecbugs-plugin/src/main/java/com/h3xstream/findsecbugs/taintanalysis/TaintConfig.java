@@ -87,8 +87,9 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
                     if (checkRewrite && containsKey(typeSignature)) {
                         throw new IllegalStateException("Config for " + typeSignature + " already loaded");
                     }
-                    TaintMethodConfig taintMethodConfig = new TaintMethodConfig(true).load(config);
+                    TaintMethodConfig taintMethodConfig = new TaintMethodConfig(true);
                     taintMethodConfig.setTypeSignature(typeSignature);
+                    taintMethodConfig.load(config);
                     put(typeSignature, taintMethodConfig);
                     return;
                 }
@@ -97,8 +98,9 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
                     if (checkRewrite && taintClassConfigMap.containsKey(typeSignature)) {
                         throw new IllegalStateException("Config for " + typeSignature + " already loaded");
                     }
-                    TaintClassConfig taintClassConfig = new TaintClassConfig().load(config);
+                    TaintClassConfig taintClassConfig = new TaintClassConfig();
                     taintClassConfig.setTypeSignature(typeSignature);
+                    taintClassConfig.load(config);
                     taintClassConfigMap.put(typeSignature, taintClassConfig);
                     return;
                 }
@@ -107,8 +109,9 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
                     if (checkRewrite && taintFieldConfigMap.containsKey(typeSignature)) {
                         throw new IllegalStateException("Config for " + typeSignature + " already loaded");
                     }
-                    TaintFieldConfig taintFieldConfig = new TaintFieldConfig().load(config);
+                    TaintFieldConfig taintFieldConfig = new TaintFieldConfig();
                     taintFieldConfig.setTypeSignature(typeSignature);
+                    taintFieldConfig.load(config);
                     taintFieldConfigMap.put(typeSignature, taintFieldConfig);
                     return;
                 }
@@ -118,10 +121,9 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
                         throw new IllegalStateException("Config for " + typeSignature + " already loaded");
                     }
 
-                    TaintMethodConfigWithArgumentsAndLocation methodConfig =
-                            new TaintMethodConfigWithArgumentsAndLocation().load(config);
-
+                    TaintMethodConfigWithArgumentsAndLocation methodConfig = new TaintMethodConfigWithArgumentsAndLocation();
                     methodConfig.setTypeSignature(typeSignature);
+                    methodConfig.load(config);
 
                     String key = typeSignature + '@' + methodConfig.getLocation();
                     taintMethodConfigWithArgumentsAndLocationMap.put(key, methodConfig);

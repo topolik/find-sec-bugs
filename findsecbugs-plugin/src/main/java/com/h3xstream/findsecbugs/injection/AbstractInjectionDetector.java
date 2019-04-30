@@ -154,10 +154,10 @@ public abstract class AbstractInjectionDetector extends AbstractTaintDetector {
             Taint sinkTaint = sinkTaints.get(methodAndSink);
             assert sinkTaint != null : "sink taint not stored in advance";
             Set<Integer> taintParameters = sinkTaint.getParameters();
-            Taint finalTaint = Taint.valueOf(sinkTaint.getNonParametricState());
+            Taint finalTaint = Taint.valueOf(sinkTaint.getNonParametricState());//??
             for (Integer offset : taintParameters) {
                 Taint parameterTaint = fact.getStackValue(offset);
-                finalTaint = Taint.merge(finalTaint, parameterTaint);
+                finalTaint = Taint.merge(finalTaint, parameterTaint);//??
             }
             if (finalTaint == null) {
                 continue;

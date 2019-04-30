@@ -41,10 +41,8 @@ import java.io.UnsupportedEncodingException;
 import java.io.Writer;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 
 import org.apache.bcel.generic.MethodGen;
 
@@ -139,11 +137,14 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
 
     private void loadTaintConfig(String path, boolean checkRewrite) {
         assert path != null && !path.isEmpty();
-
-        try (InputStream stream = getClass().getClassLoader().getResourceAsStream(path)) {
+        InputStream stream = null;
+        try {
+            stream = getClass().getClassLoader().getResourceAsStream(path);
             taintConfig.load(stream, checkRewrite);
         } catch (IOException ex) {
             assert false : ex.getMessage();
+        } finally {
+            IO.close(stream);
         }
     }
     

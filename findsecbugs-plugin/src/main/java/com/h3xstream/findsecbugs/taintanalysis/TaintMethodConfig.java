@@ -17,6 +17,8 @@
  */
 package com.h3xstream.findsecbugs.taintanalysis;
 
+import com.h3xstream.findsecbugs.taintanalysis.taint.TaintFactory;
+
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
@@ -144,7 +146,7 @@ public class TaintMethodConfig implements TaintTypeConfig {
         if (outputTaint == null) {
             return null;
         }
-        return new Taint(outputTaint);
+        return outputTaint.clone();
     }
 
     /**
@@ -158,7 +160,7 @@ public class TaintMethodConfig implements TaintTypeConfig {
             this.outputTaint = null;
             return;
         }
-        Taint taintCopy = new Taint(taint);
+        Taint taintCopy = taint.clone();
         taintCopy.invalidateVariableIndex();
         this.outputTaint = taintCopy;
     }
@@ -380,14 +382,20 @@ public class TaintMethodConfig implements TaintTypeConfig {
     }
 
     private void loadStatesAndParameters(String str) throws IOException {
+//        String returnType = typeSignature.substring(typeSignature.indexOf(')') + 1);
+//
+//        if (typeSignature.contains("<init>")) {
+//            returnType = 'L' + typeSignature.substring(0, typeSignature.indexOf('.')) + ';';
+//        }
+
         if (str.isEmpty()) {
             throw new IOException("No taint information set");
         } else if (isTaintStateValue(str)) {
-            setOuputTaint(Taint.valueOf(str));
+            setOuputTaint(TaintFactory.createTaint(returnType, Taint.State.valueOf(str)));
         } else {
             String[] tuple = str.split(",");
             int count = tuple.length;
-            Taint taint = new Taint(Taint.State.UNKNOWN);
+            Taint taint = TaintFactory.createTaint(returnType, Taint.State.UNKNOWN);
             for (int i = 0; i < count; i++) {
                 String indexOrState = tuple[i].trim();
                 if (isTaintStateValue(indexOrState)) {

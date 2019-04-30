@@ -20,6 +20,7 @@ package com.h3xstream.findsecbugs.taintanalysis;
 import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
 import com.h3xstream.findsecbugs.taintanalysis.data.UnknownSource;
 import com.h3xstream.findsecbugs.taintanalysis.data.UnknownSourceType;
+import com.h3xstream.findsecbugs.taintanalysis.taint.TaintFactory;
 import edu.umd.cs.findbugs.ba.BasicBlock;
 import edu.umd.cs.findbugs.ba.DataflowAnalysisException;
 import edu.umd.cs.findbugs.ba.DepthFirstSearch;
@@ -55,6 +56,7 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
     private final TaintFrameModelingVisitor visitor;
     private int parameterStackSize;
     private List<Integer> slotToParameter;
+    private List<String> parameterTypes;
 
     private static final List<String> TAINTED_ANNOTATIONS = loadFileContent(
             "taint-config/taint-param-annotations.txt"
@@ -108,19 +110,33 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
         int numSlots = fact.getNumSlots();
         int numLocals = fact.getNumLocals();
         for (int i = 0; i < numSlots; ++i) {
-            Taint value = new Taint(Taint.State.UNKNOWN);
+            Taint value;
+
+            if (i < parameterStackSize) {
+                int idx = 0;
+                if (methodDescriptor.isStatic()) {
+                    idx = slotToParameter.get(i);
+                }
+                else if (i > 0) {
+                    idx = slotToParameter.get(i - 1) + 1;
+                }
+                value = TaintFactory.createTaint(parameterTypes.get(idx), Taint.State.UNKNOWN);
+            } else {
+                value = TaintFactory.createTaint(Taint.State.UNKNOWN);
+            }
+
             if (i < numLocals) {
                 if (i < parameterStackSize) {
                     int stackOffset = parameterStackSize - i - 1;
                     if (isTaintedByAnnotation(i - 1)) {
-                        value = new Taint(Taint.State.TAINTED);
+                        value.setState(Taint.State.TAINTED);
                         // this would add line number for the first instruction in the method
                         //value.addLocation(new TaintLocation(methodDescriptor, 0,""), true);
                     } else if (inMainMethod) {
                         if (FindSecBugsGlobalConfig.getInstance().isTaintedMainArgument()) {
-                            value = new Taint(Taint.State.TAINTED);
+                            value.setState(Taint.State.TAINTED);
                         } else {
-                            value = new Taint(Taint.State.SAFE);
+                            value.setState(Taint.State.SAFE);
                         }
                     } else {
                         value.addParameter(stackOffset);
@@ -245,6 +261,10 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
         Iterator<String> iterator = parser.parameterSignatureIterator();
         int paramIdx = 0;
         slotToParameter = new ArrayList<Integer>();
+        parameterTypes = new ArrayList<String>(isStatic ? parser.getNumParameters() : parser.getNumParameters() + 1);
+        if (!isStatic) {
+            parameterTypes.add(methodDescriptor.getClassDescriptor().getSignature());
+        }
         while (iterator.hasNext()) {
             String parameter = iterator.next();
             if (parameter.equals("D") || parameter.equals("J")) {
@@ -257,6 +277,7 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
                 slotToParameter.add(paramIdx);
             }
             paramIdx++;
+            parameterTypes.add(parameter);
         }
         parameterStackSize = stackSize;
     }
