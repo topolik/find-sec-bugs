@@ -233,11 +233,11 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
 
         if (taint.hasTags()) {
             writer.append('|');
-            writer.append(taint.getTags().stream().map(Taint.Tag::name).collect(Collectors.joining(",", "+", "")));
+            writer.append(taint.getTags().stream().map(Taint.Tag::name).map(name -> "+" + name).collect(Collectors.joining(",")));
         }
         if (taint.isRemovingTags()) {
             writer.append('|');
-            writer.append(taint.getTagsToRemove().stream().map(Taint.Tag::name).collect(Collectors.joining(",", "-", "")));
+            writer.append(taint.getTagsToRemove().stream().map(Taint.Tag::name).map(name -> "-" + name).collect(Collectors.joining(",")));
         }
     }
 
