@@ -16,18 +16,6 @@ public class SomeClass extends Exception{
     private HttpServletRequest request;
     private SessionFactory sessionFactory;
 
-
-    public void safeX(){
-
-        sessionFactory.openSession().createQuery("FROM comment WHERE userId="+String.format("select * from Users where name = '%s'", "safe"));
-    }
-
-    public void unknown(String s){
-        classA classA = new classA(s);
-
-        sessionFactory.openSession().createQuery("FROM comment WHERE userId="+classA.s);
-    }
-
     public void safe(){
         classA classA = new classA();
 
@@ -55,7 +43,6 @@ public class SomeClass extends Exception{
         return "safe";
     }
 
-
     public void safe3(){
         classA ca = new classA();
 
@@ -66,6 +53,30 @@ public class SomeClass extends Exception{
         cb.cA = ca;
 
         sessionFactory.openSession().createQuery("FROM comment WHERE userId="+cb.cA.s);
+    }
+
+    private classB cb1;
+
+    public void safe4(){
+        cb1 = new classB();
+
+        cb1.cA = new classA("safe");
+
+        sessionFactory.openSession().createQuery("FROM comment WHERE userId="+cb1.cA.s);
+    }
+
+    private classB cb2 = new classB(){{
+        this.cA = new classA("safe");
+    }};
+
+    public void safe5(){
+        sessionFactory.openSession().createQuery("FROM comment WHERE userId="+cb1.cA.s);
+    }
+
+    public void unknown(String s){
+        classA classA = new classA(s);
+
+        sessionFactory.openSession().createQuery("FROM comment WHERE userId="+classA.s);
     }
 
 
@@ -88,7 +99,7 @@ public class SomeClass extends Exception{
     }
 
     class classB {
-        private classA cA;
+        protected classA cA;
     }
 
 }
