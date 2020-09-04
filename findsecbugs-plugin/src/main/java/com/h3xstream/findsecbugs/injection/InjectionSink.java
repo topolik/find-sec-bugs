@@ -19,6 +19,7 @@ package com.h3xstream.findsecbugs.injection;
 
 import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
 import com.h3xstream.findsecbugs.taintanalysis.Taint;
+import com.h3xstream.findsecbugs.taintanalysis.data.MethodDeclarationTaintLocation;
 import com.h3xstream.findsecbugs.taintanalysis.data.TaintLocation;
 import com.h3xstream.findsecbugs.taintanalysis.data.UnknownSource;
 import com.h3xstream.findsecbugs.taintanalysis.data.UnknownSourceType;
@@ -31,6 +32,10 @@ import edu.umd.cs.findbugs.ba.ClassContext;
 
 import java.util.*;
 
+import edu.umd.cs.findbugs.classfile.Global;
+import edu.umd.cs.findbugs.classfile.IAnalysisCache;
+import edu.umd.cs.findbugs.classfile.MethodDescriptor;
+import org.apache.bcel.classfile.JavaClass;
 import org.apache.bcel.classfile.Method;
 import org.apache.bcel.generic.InstructionHandle;
 
@@ -129,8 +134,11 @@ public class InjectionSink {
     public void addLines(Collection<TaintLocation> locations) {
         Objects.requireNonNull(detector, "locations");
         for (TaintLocation location : locations) {
-            lines.add(SourceLineAnnotation.fromVisitedInstruction(
-                location.getMethodDescriptor(), location.getPosition()));
+            if (location instanceof MethodDeclarationTaintLocation) {
+                lines.add(SourceLineAnnotation.forFirstLineOfMethod(location.getMethodDescriptor()));
+            } else {
+                lines.add(SourceLineAnnotation.fromVisitedInstruction(location.getMethodDescriptor(), location.getPosition()));
+            }
         }
     }
     

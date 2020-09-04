@@ -20,6 +20,8 @@ package com.h3xstream.findsecbugs.taintanalysis;
 import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
 import com.h3xstream.findsecbugs.taintanalysis.data.TaintLocation;
 import com.h3xstream.findsecbugs.taintanalysis.data.UnknownSource;
+import com.h3xstream.findsecbugs.taintanalysis.taint.ObjectTaint;
+import com.h3xstream.findsecbugs.taintanalysis.taint.TaintFactory;
 import edu.umd.cs.findbugs.ba.AnalysisContext;
 import edu.umd.cs.findbugs.util.ClassName;
 
@@ -28,8 +30,10 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import org.apache.bcel.generic.ObjectType;
@@ -41,6 +45,87 @@ import org.apache.bcel.generic.ObjectType;
  * @author David Formanek (Y Soft Corporation, a.s.)
  */
 public class Taint {
+
+    public boolean hasFields() {
+        return fields != null && !fields.isEmpty();
+    }
+
+    public Set<FieldTuple> getFields() {
+        if (fields == null) {
+            return null;
+        }
+
+        return Collections.unmodifiableSet(fields);
+    }
+
+    class FieldTuple {
+        final Taint parentTaint;
+        final String fieldName;
+
+        FieldTuple(Taint parentTaint, String fieldName) {
+            this.parentTaint = parentTaint;
+            this.fieldName = fieldName;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            FieldTuple that = (FieldTuple) o;
+            return parentTaint.equals(that.parentTaint) &&
+                    fieldName.equals(that.fieldName);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(parentTaint, fieldName);
+        }
+
+        public Taint getParentTaint() {
+            return parentTaint;
+        }
+
+        public String getFieldName() {
+            return fieldName;
+        }
+
+        @Override
+        public String toString() {
+            return parentTaint.getTypeSignature() + "." + fieldName;
+        }
+    }
+
+    public void setField(Taint parentTaint, String fieldName) {
+        if (fields == null) {
+            fields = new HashSet<>();
+        }
+
+        fields.add(new FieldTuple(parentTaint, fieldName));
+    }
+
+
+    public void setFieldTaint(String fieldName, Taint fieldTaint) {
+        if (fieldTaints == null) {
+            fieldTaints = new HashMap<>();
+        }
+
+        fieldTaints.put(fieldName, fieldTaint);
+    }
+
+    public Taint getFieldTaint(String fieldName) {
+        if (fieldTaints != null) {
+            return fieldTaints.get(fieldName);
+        }
+
+        return null;
+    }
+
+    public Map<String, Taint> getFieldTaints() {
+        return fieldTaints;
+    }
+
+    private Map<String, Taint> fieldTaints;
+
 
     public enum State {
 
@@ -127,6 +212,9 @@ public class Taint {
     private String potentialValue;
     private String debugInfo = null;
     private Set<UnknownSource> sources;
+    private String typeSignature;
+    private String contextPath;
+    private Set<FieldTuple> fields;
 
     /**
      * Constructs a new empty instance of Taint with the specified state
@@ -186,6 +274,16 @@ public class Taint {
         if (taint.sources != null) {
             this.sources = new HashSet<>(taint.sources);
         }
+        this.typeSignature = taint.typeSignature;
+        this.contextPath = taint.contextPath;
+
+        if (taint.hasFields()) {
+            this.fields = new HashSet<>(taint.fields);
+        }
+
+        if (taint.fieldTaints != null) {
+            taint.fieldTaints.forEach((fieldName, fieldTaint) -> setFieldTaint(fieldName, fieldTaint.clone()));
+        }
     }
 
     /**
@@ -205,6 +303,25 @@ public class Taint {
         }
         if (hasTags() || isRemovingTags()) {
             return true;
+        }
+        if (sources != null && sources.size() > 0) {
+            return true;
+        }
+        if (unknownLocations != null && unknownLocations.size() > 0) {
+            return true;
+        }
+        if (taintLocations!= null && taintLocations.size() > 0) {
+            return true;
+        }
+        if(hasFields()) {
+            return true;
+        }
+        if (fieldTaints != null) {
+            for (Taint taint : fieldTaints.values()) {
+                if (taint.isInformative()) {
+                    return true;
+                }
+            }
         }
 
         return false;
@@ -605,12 +722,23 @@ public class Taint {
 
     /**
      * Returns the merge of the facts such that it can represent any of them
+     *
+     * @param b second state to merge
+     * @return constructed merge of the specified facts
+     */
+    public Taint merge(Taint b) {
+        return Taint.merge(this, b);
+    }
+
+
+    /**
+     * Returns the merge of the facts such that it can represent any of them
      * 
      * @param a first state to merge
      * @param b second state to merge
      * @return constructed merge of the specified facts
      */
-    public static Taint merge(Taint a, Taint b) {
+    private static Taint merge(Taint a, Taint b) {
         if (a == null) {
             if (b == null) {
                 return null;
@@ -621,7 +749,8 @@ public class Taint {
             return new Taint(a);
         }
 
-        Taint result = new Taint(State.merge(a.getState(), b.getState()));
+        Taint result = TaintFactory.createTaint(a.getTypeSignature(), State.merge(a.getState(), b.getState()));
+
         if (a.variableIndex == b.variableIndex) {
             result.variableIndex = a.variableIndex;
         }
@@ -679,6 +808,20 @@ public class Taint {
         }
         if (b.sources != null) {
             result.sources.addAll(b.sources);
+        }
+
+        if (a.fieldTaints != null && b.fieldTaints != null) {
+            for (Map.Entry<String, Taint> entry : a.fieldTaints.entrySet()) {
+                result.setFieldTaint(entry.getKey(), entry.getValue().merge(b.fieldTaints.get(entry.getKey())));
+            }
+        } else if (a.fieldTaints != null) {
+            for (Map.Entry<String, Taint> entry : a.fieldTaints.entrySet()) {
+                result.setFieldTaint(entry.getKey(), entry.getValue());
+            }
+        } else if (b.fieldTaints != null) {
+            for (Map.Entry<String, Taint> entry : b.fieldTaints.entrySet()) {
+                result.setFieldTaint(entry.getKey(), entry.getValue());
+            }
         }
 
         return result;
@@ -843,6 +986,22 @@ public class Taint {
         this.sources.addAll(sources);
     }
 
+    public String getTypeSignature() {
+        return typeSignature;
+    }
+
+    public void setTypeSignature(String typeSignature) {
+        this.typeSignature = typeSignature;
+    }
+
+    public String getContextPath() {
+        return contextPath;
+    }
+
+    public void setContextPath(String contextPath) {
+        this.contextPath = contextPath;
+    }
+
     @Override
     public String toString() {
         assert state != null;
@@ -883,6 +1042,18 @@ public class Taint {
         if (tags != null && tags.size() > 0) {
             sb.append(" tags=").append(Arrays.toString(tags.toArray()));
         }
+        if (hasFields()) {
+            sb.append(" fields=").append(fields.toString());
+        }
+        if (fieldTaints != null && !fieldTaints.isEmpty()) {
+            sb.append(" fieldTaints=").append(fieldTaints);
+
+        }
         return sb.toString();
+    }
+
+    @Override
+    public Taint clone() {
+        return new Taint(this);
     }
 }

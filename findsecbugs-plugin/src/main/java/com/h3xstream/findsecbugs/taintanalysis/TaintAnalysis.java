@@ -18,6 +18,8 @@
 package com.h3xstream.findsecbugs.taintanalysis;
 
 import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
+import com.h3xstream.findsecbugs.taintanalysis.data.MethodDeclarationTaintLocation;
+import com.h3xstream.findsecbugs.taintanalysis.data.TaintLocation;
 import com.h3xstream.findsecbugs.taintanalysis.data.UnknownSource;
 import com.h3xstream.findsecbugs.taintanalysis.data.UnknownSourceType;
 import com.h3xstream.findsecbugs.taintanalysis.taint.TaintFactory;
@@ -31,7 +33,7 @@ import edu.umd.cs.findbugs.ba.generic.GenericSignatureParser;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
 import edu.umd.cs.findbugs.classfile.analysis.AnnotationValue;
 import edu.umd.cs.findbugs.classfile.analysis.MethodInfo;
-import edu.umd.cs.findbugs.io.IO;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -40,6 +42,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
+
+import org.apache.bcel.Const;
 import org.apache.bcel.generic.InstructionHandle;
 import org.apache.bcel.generic.MethodGen;
 
@@ -82,7 +86,10 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
     @Override
     protected void mergeValues(TaintFrame frame, TaintFrame result, int i)
             throws DataflowAnalysisException {
-        result.setValue(i, Taint.merge(result.getValue(i), frame.getValue(i)));
+
+        Taint frameTaint = frame.getValue(i);
+        Taint resultTaint = result.getValue(i);
+        result.setValue(i, resultTaint.merge(frameTaint));
     }
 
     @Override
@@ -107,6 +114,7 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
         fact.clearStack();
         String methodFullSignature = methodDescriptor.getSlashedClassName() + "." + methodDescriptor.getName() + methodDescriptor.getSignature();
         boolean inMainMethod = isInMainMethod();
+        boolean inConstructor = Const.CONSTRUCTOR_NAME.equals(methodDescriptor.getName());
         int numSlots = fact.getNumSlots();
         int numLocals = fact.getNumLocals();
         for (int i = 0; i < numSlots; ++i) {
@@ -138,8 +146,13 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
                         } else {
                             value.setState(Taint.State.SAFE);
                         }
+                    } else if (i == 0 && inConstructor){
+                        value.setState(Taint.State.SAFE);
                     } else {
                         value.addParameter(stackOffset);
+                    }
+                    if (!value.getState().equals(Taint.State.SAFE)){
+                        value.addLocation(new MethodDeclarationTaintLocation(methodDescriptor), false);
                     }
                     value.addSource(new UnknownSource(UnknownSourceType.PARAMETER,value.getState()).setSignatureMethod(methodFullSignature).setParameterIndex(stackOffset));
                 }

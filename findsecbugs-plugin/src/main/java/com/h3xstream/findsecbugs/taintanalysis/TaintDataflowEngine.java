@@ -41,8 +41,10 @@ import java.io.UnsupportedEncodingException;
 import java.io.Writer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 import org.apache.bcel.generic.MethodGen;
 
@@ -176,7 +178,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     public TaintDataflow analyze(IAnalysisCache cache, MethodDescriptor descriptor)
             throws CheckedAnalysisException {
         if(FindSecBugsGlobalConfig.getInstance().isDebugPrintInstructionVisited() || FindSecBugsGlobalConfig.getInstance().isDebugPrintInvocationVisited()) {
-            System.out.println("==[ Method: "+descriptor.getName()+" ]==");
+            System.out.println("==[ "+descriptor.getSlashedClassName() + "." + descriptor.getName() + descriptor.getSignature() +" ]==");
         }
         CFG cfg = cache.getMethodAnalysis(CFG.class, descriptor);
         DepthFirstSearch dfs = cache.getMethodAnalysis(DepthFirstSearch.class, descriptor);

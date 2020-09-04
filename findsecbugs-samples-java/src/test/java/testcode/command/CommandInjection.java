@@ -215,7 +215,7 @@ public abstract class CommandInjection {
     }
 
     public String parametricUnknownSource(String str) {
-        return str + new Object().toString() + "xx";
+        return str + new NullPointerException(str).toString() + "xx";
     }
 
     public String taintSource(String param) throws IOException {

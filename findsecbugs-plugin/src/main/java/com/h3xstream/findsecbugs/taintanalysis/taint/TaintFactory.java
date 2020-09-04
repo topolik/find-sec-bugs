@@ -11,18 +11,20 @@ public class TaintFactory {
     }
 
     public static Taint createTaint(String typeSignature, Taint.State initState) {
+        Taint result = null;
+
         if (typeSignature == null || typeSignature.length() == 0) {
-            return new Taint(initState);
+            result = new Taint(initState);
+        }
+        else if (typeSignature.charAt(0) == '[') {
+            result = new ArrayTaint(initState);
+        }
+        else {
+            result = new Taint(initState);
         }
 
-        if (typeSignature.charAt(0) == 'L') {
-            return new ObjectTaint(typeSignature, initState);
-        }
+        result.setTypeSignature(typeSignature);
 
-        if (typeSignature.charAt(0) == '[') {
-            return new ArrayTaint(initState);
-        }
-
-        return new Taint(initState);
+        return result;
     }
 }

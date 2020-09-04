@@ -18,10 +18,15 @@
 package com.h3xstream.findsecbugs.taintanalysis;
 
 import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
+import com.h3xstream.findsecbugs.taintanalysis.taint.TaintFactory;
 import edu.umd.cs.findbugs.ba.DataflowAnalysisException;
 import edu.umd.cs.findbugs.ba.Frame;
 import org.apache.bcel.generic.LocalVariableGen;
 import org.apache.bcel.generic.MethodGen;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * Representation of the dataflow value (fact) modeling taint state of local
@@ -31,11 +36,67 @@ import org.apache.bcel.generic.MethodGen;
  */
 public class TaintFrame extends Frame<Taint> {
 
+    private Map<String, Taint> context;
+
     public TaintFrame(int numLocals) {
         super(numLocals);
     }
 
+    public Taint getContextTaint(String contextPath) {
+        if (context == null) {
+            return TaintFactory.createTaint(Taint.State.UNKNOWN);
+        }
 
+        Taint taint = context.get(contextPath);
+
+        return taint != null ? taint : TaintFactory.createTaint(Taint.State.UNKNOWN);
+    }
+
+    public void setContextTaint(String contextPath, Taint taint) {
+        if (context == null) {
+            context = new HashMap<>();
+        }
+
+        context.put(contextPath, taint);
+    }
+
+    public Map<String, Taint> getContext() {
+        return context;
+    }
+
+    @Override
+    public void copyFrom(Frame<Taint> other) {
+        super.copyFrom(other);
+
+        context = ((TaintFrame)other).context;
+    }
+
+    @Override
+    public void pushValue(Taint value) {
+        super.pushValue(value);
+
+        if (value.getContextPath() != null) {
+            context.put(value.getContextPath(), value);
+        }
+    }
+
+    @Override
+    public void setValue(int n, Taint value) {
+        super.setValue(n, value);
+
+        if (value.getContextPath() != null) {
+            context.put(value.getContextPath(), value);
+        }
+    }
+
+    @Override
+    public boolean sameAs(Frame<Taint> other) {
+        if (!Objects.equals(context, ((TaintFrame)other).context)) {
+            return false;
+        }
+
+        return super.sameAs(other);
+    }
 
     public String toString(MethodGen method) {
         String[] variables = new String[method.getLocalVariables().length];

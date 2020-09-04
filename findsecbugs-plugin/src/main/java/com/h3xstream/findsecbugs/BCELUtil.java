@@ -20,8 +20,11 @@ package com.h3xstream.findsecbugs;
 import edu.umd.cs.findbugs.ba.AnalysisContext;
 import edu.umd.cs.findbugs.util.ClassName;
 import org.apache.bcel.Const;
+import org.apache.bcel.classfile.Constant;
 import org.apache.bcel.classfile.ConstantCP;
+import org.apache.bcel.classfile.ConstantClass;
 import org.apache.bcel.classfile.ConstantPool;
+import org.apache.bcel.generic.CPInstruction;
 import org.apache.bcel.generic.FieldOrMethod;
 import org.apache.bcel.classfile.JavaClass;
 import org.apache.bcel.generic.ConstantPoolGen;
@@ -45,14 +48,19 @@ public class BCELUtil {
      */
     private static Map<String, Set<String>> superMap = new WeakHashMap<>();
 
-    public static String getSlashedClassName(ConstantPoolGen cpg, FieldOrMethod obj) {
+    public static String getSlashedClassName(ConstantPoolGen cpg, CPInstruction obj) {
         if (Const.INVOKEDYNAMIC == obj.getOpcode()) {
             return INVOKEDYNAMIC_GENERIC_CLASSNAME;
         }
 
-        ConstantPool cp = cpg.getConstantPool();
-        ConstantCP invokeConstant = (ConstantCP)cp.getConstant(obj.getIndex());
-        return cp.getConstantString(invokeConstant.getClassIndex(), Const.CONSTANT_Class);
+        if (obj instanceof FieldOrMethod){
+            ConstantPool cp = cpg.getConstantPool();
+            Constant constant = cp.getConstant(obj.getIndex());
+            return cp.getConstantString(((ConstantCP) constant).getClassIndex(), Const.CONSTANT_Class);
+        }
+
+        final ConstantPool cp = cpg.getConstantPool();
+        return cp.getConstantString(obj.getIndex(), Const.CONSTANT_Class);
     }
 
     public static String getSlashedClassName(JavaClass javaClass) {

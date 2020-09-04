@@ -19,6 +19,7 @@ package com.h3xstream.findsecbugs.taintanalysis;
 
 import com.h3xstream.findbugs.test.BaseDetectorTest;
 import com.h3xstream.findbugs.test.EasyBugReporter;
+import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
 import org.testng.annotations.Test;
 
 import static org.mockito.Mockito.*;
@@ -26,24 +27,32 @@ import static org.mockito.Mockito.*;
 public class SomeClassTest extends BaseDetectorTest {
 
         @Test
-        public void testSafeTestCases() throws Exception {
-        //Locate test code
-        String[] files = {
-                getClassFilePath("testcode/taint/SomeClass")
-        };
+        public void safe() throws Exception {
+//                FindSecBugsGlobalConfig.getInstance().setDebugPrintInvocationVisited(true);
+//                FindSecBugsGlobalConfig.getInstance().setDebugPrintInstructionVisited(true);
+//                FindSecBugsGlobalConfig.getInstance().setDebugTaintState(true);
 
-        //Run the analysis
-        EasyBugReporter reporter = spy(new SecurityReporter());
-        analyze(files, reporter);
+                //Locate test code
+                String[] files = {
+                        getClassFilePath("testcode/taint/SomeClass"),
+                        getClassFilePath("testcode/taint/SomeClass$classA"),
+                        getClassFilePath("testcode/taint/SomeClass$classB")
+                };
+
+                //Run the analysis
+                EasyBugReporter reporter = spy(new SecurityReporter());
+                analyze(files, reporter);
+
 //
-//        //Assertions
-//        verify(reporter, times(1)).doReportBug(
-//                bugDefinition().bugType("SQL_INJECTION_HIBERNATE") //
-//                        .inClass("JaxRsAnnotatedController").inMethod("getInfoUser") //
-//                        .withPriority("High") //High because of taint parameter
-//                        .build());
-//
-//        verify(reporter,times(1)).doReportBug(
-//                bugDefinition().bugType("SQL_INJECTION_HIBERNATE").build());
-    }
+//                verify(reporter, never()).doReportBug(
+//                        bugDefinition()
+//                                .inClass("SomeClass").inMethod("safe")
+//                                .build());
+
+//                verify(reporter, times(1)).doReportBug(
+//                        bugDefinition().bugType("SQL_INJECTION_HIBERNATE")
+//                                .inClass("SomeClass").inMethod("tainted2")
+//                                .withPriority("High")
+//                                .build());
+        }
 }

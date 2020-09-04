@@ -77,7 +77,10 @@ public class EasyBugReporter extends AbstractBugReporter {
                         .append(bugInstance.getPrimaryMethod().getMethodName())
                         .append("() at ")
                         .append(bugInstance.getPrimarySourceLineAnnotation().getStartLine())
-                        .append("]");
+                        .append(" with priority ")
+                        .append(bugInstance.getPriorityString())
+                        .append("] ")
+                        .append(bugInstance.getAnnotations().toString());
             }
             else if (bugInstance.getPrimaryClass() != null && bugInstance.getPrimaryField() != null && bugInstance.getPrimarySourceLineAnnotation() != null) {
                 bugDetail.append("[")
@@ -86,6 +89,8 @@ public class EasyBugReporter extends AbstractBugReporter {
                         .append(bugInstance.getPrimaryField())
                         .append(" at ")
                         .append(bugInstance.getPrimarySourceLineAnnotation().getStartLine())
+                        .append(" with priority ")
+                        .append(bugInstance.getPriorityString())
                         .append("]");
             }
             log.info(bugDetail.toString());

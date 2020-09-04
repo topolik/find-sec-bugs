@@ -70,6 +70,15 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
         }
     }
 
+    @Override
+    public TaintMethodConfig get(Object key) {
+        TaintMethodConfig taintMethodConfig = super.get(key);
+
+//        System.out.println("@@@@ GET: " + key + " found: " + taintMethodConfig);
+
+        return taintMethodConfig;
+    }
+
     /**
      * Loads summaries from stream checking the format
      * 

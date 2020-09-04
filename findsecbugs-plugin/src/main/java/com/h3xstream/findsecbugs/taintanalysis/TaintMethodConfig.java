@@ -197,7 +197,7 @@ public class TaintMethodConfig implements TaintTypeConfig {
         if (outputTaint != null && outputTaint.isInformative()) {
             return true;
         }
-        if (parametersOutputTaintsProcessed) {
+        if (parametersOutputTaints.size() > 0) {
             return true;
         }
 
@@ -382,11 +382,11 @@ public class TaintMethodConfig implements TaintTypeConfig {
     }
 
     private void loadStatesAndParameters(String str) throws IOException {
-//        String returnType = typeSignature.substring(typeSignature.indexOf(')') + 1);
-//
-//        if (typeSignature.contains("<init>")) {
-//            returnType = 'L' + typeSignature.substring(0, typeSignature.indexOf('.')) + ';';
-//        }
+        String returnType = typeSignature.substring(typeSignature.indexOf(')') + 1);
+
+        if (typeSignature.contains("<init>")) {
+            returnType = 'L' + typeSignature.substring(0, typeSignature.indexOf('.')) + ';';
+        }
 
         if (str.isEmpty()) {
             throw new IOException("No taint information set");
@@ -489,7 +489,7 @@ public class TaintMethodConfig implements TaintTypeConfig {
      */
     public void setParameterOutputTaint(int stackIndex, Taint taint) {
         parametersOutputTaints.compute(
-                stackIndex, (__, existingTaint) -> Taint.merge(existingTaint, taint));
+                stackIndex, (__, existingTaint) -> taint.merge(existingTaint));
     }
 
     /**

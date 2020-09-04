@@ -27,8 +27,9 @@ public class TaintMethodConfigTest {
     @Test
     public void validateSimpleTaintMethodConfig() throws IOException {
         String sig = "android/database/DatabaseUtils.concatenateWhere(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;";
-        TaintMethodConfig config = new TaintMethodConfig(true).load("1#2");
+        TaintMethodConfig config = new TaintMethodConfig(true);
         config.setTypeSignature(sig);
+        config.load("1#2");
         String output = config.toString();
         System.out.println(output);
 
@@ -41,10 +42,12 @@ public class TaintMethodConfigTest {
         String sig2    = "java/net/URLDecoder.decode(Ljava/lang/String;)Ljava/lang/String;";
         String config2 = "0|-URL_ENCODED,-XSS_SAFE";
 
-        TaintMethodConfig tmconfig1 = new TaintMethodConfig(true).load(config1);
+        TaintMethodConfig tmconfig1 = new TaintMethodConfig(true);
         tmconfig1.setTypeSignature(sig1);
-        TaintMethodConfig tmconfig2 = new TaintMethodConfig(true).load(config2);
+        tmconfig1.load(config1);
+        TaintMethodConfig tmconfig2 = new TaintMethodConfig(true);
         tmconfig2.setTypeSignature(sig2);
+        tmconfig2.load(config2);
 
         output = tmconfig1.toString();
         System.out.println(output);
