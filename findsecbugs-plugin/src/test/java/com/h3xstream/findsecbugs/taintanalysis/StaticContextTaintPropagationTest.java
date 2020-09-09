@@ -46,6 +46,12 @@ public class StaticContextTaintPropagationTest extends BaseDetectorTest {
 
         verify(reporter, times(1)).doReportBug(
             bugDefinition().bugType("SQL_INJECTION_HIBERNATE")
+                .inClass("StaticContextTaintPropagation").inMethod("unknown")
+                .withPriority("Low") // SAFE but not fully resolved
+                .build());
+
+        verify(reporter, times(1)).doReportBug(
+            bugDefinition().bugType("SQL_INJECTION_HIBERNATE")
                 .inClass("StaticContextTaintPropagation").inMethod("taintedValue")
                 .withPriority("High") // tainted value
                 .build());

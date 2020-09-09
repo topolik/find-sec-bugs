@@ -20,22 +20,29 @@ package com.h3xstream.findsecbugs.taintanalysis;
 import com.h3xstream.findsecbugs.BCELUtil;
 import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
 import com.h3xstream.findsecbugs.common.ByteCode;
+import com.h3xstream.findsecbugs.injection.ClassFieldSignature;
 import com.h3xstream.findsecbugs.taintanalysis.data.TaintLocation;
 import com.h3xstream.findsecbugs.taintanalysis.data.UnknownSource;
 import com.h3xstream.findsecbugs.taintanalysis.data.UnknownSourceType;
 import com.h3xstream.findsecbugs.taintanalysis.taint.TaintFactory;
 import edu.umd.cs.findbugs.ba.AbstractFrameModelingVisitor;
+import edu.umd.cs.findbugs.ba.AnalysisContext;
 import edu.umd.cs.findbugs.ba.DataflowAnalysisException;
 import edu.umd.cs.findbugs.ba.InvalidBytecodeException;
 import edu.umd.cs.findbugs.ba.generic.GenericSignatureParser;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
 import edu.umd.cs.findbugs.util.ClassName;
 
+import java.lang.reflect.Modifier;
 import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 import org.apache.bcel.Const;
+import org.apache.bcel.Repository;
+import org.apache.bcel.classfile.Field;
+import org.apache.bcel.classfile.JavaClass;
 import org.apache.bcel.generic.*;
 
 /**
@@ -128,6 +135,10 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             ByteCode.printOpCode(ins, cpg);
         }
         super.analyzeInstruction(ins);
+
+        if (FindSecBugsGlobalConfig.getInstance().isDebugPrintInstructionVisited()) {
+            System.out.println(Arrays.stream(getFrame().toString().split("\n")).collect(Collectors.joining( "\n    ", "\n    ", "\n")));
+        }
     }
 
     @Override
@@ -182,9 +193,11 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
 
     @Override
     public void visitGETSTATIC(GETSTATIC obj) {
+        ObjectType objectType = obj.getLoadClassType(getCPG());
+
         // Scala uses some classes to represent null instances of objects
         // If we find one of them, we will handle it as a Java Null
-        if (obj.getLoadClassType(getCPG()).getSignature().equals("Lscala/collection/immutable/Nil$;")) {
+        if (objectType.getSignature().equals("Lscala/collection/immutable/Nil$;")) {
 
             if (FindSecBugsGlobalConfig.getInstance().isDebugTaintState()) {
                 getFrame().pushValue(TaintFactory.createTaint(Taint.State.NULL).setDebugInfo("NULL"));
@@ -192,24 +205,36 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                 getFrame().pushValue(TaintFactory.createTaint(Taint.State.NULL));
             }
         } else {
-            Taint taint;
+            ClassFieldSignature classFieldSignature = new ClassFieldSignature(BCELUtil.getSlashedClassName(cpg, obj), obj.getName(cpg));
 
-            String fieldSig = BCELUtil.getSlashedClassName(cpg, obj)+"."+obj.getName(cpg);
-            Taint.State state = taintConfig.getFieldTaintState(fieldSig, Taint.State.INVALID);
-            if (state == Taint.State.INVALID) {
-                state = taintConfig.getClassTaintState(obj.getSignature(cpg), Taint.State.INVALID);
-            }
-            if (state == Taint.State.INVALID) {
-                taint = taintConfig.getStaticFieldTaint(fieldSig, TaintFactory.createTaint(obj.getSignature(cpg), Taint.State.UNKNOWN));
-            }
-            else {
-                taint = TaintFactory.createTaint(obj.getSignature(cpg), state);
+            Taint taint = getStaticFieldTaint(classFieldSignature, analyzedMethodConfig,  taintConfig);
+
+            String fieldTypeSignature = obj.getSignature(cpg);
+            if (taint.getState().equals(Taint.State.SAFE) && taintConfig.isClassImmutable(fieldTypeSignature)) {
+                // immutable final fields with SAFE taint can be treated as globally safe regardless of static context
+                try {
+                    JavaClass javaClass = Repository.lookupClass(objectType.getClassName());
+                    for (Field field : javaClass.getFields()) {
+                        if (!Modifier.isFinal(field.getModifiers())
+                                || !field.getName().equals(classFieldSignature.getFieldName())
+                                || !field.getSignature().equals(fieldTypeSignature)) {
+
+                            continue;
+                        }
+                        Taint oldTaint = taint;
+                        taint = TaintFactory.createTaint(fieldTypeSignature, Taint.State.SAFE);
+                        taint.setConstantValue(oldTaint.getConstantValue());
+                    }
+
+                } catch (ClassNotFoundException ex) {
+                    AnalysisContext.reportMissingClass(ex);
+                }
             }
 
-            if (!state.equals(Taint.State.SAFE)){
+            if (!taint.getState().equals(Taint.State.SAFE)){
                 taint.addLocation(getTaintLocation(), false);
             }
-            taint.addSource(new UnknownSource(UnknownSourceType.FIELD,state).setSignatureField(fieldSig));
+            taint.addSource(new UnknownSource(UnknownSourceType.FIELD,taint.getState()).setSignatureField(classFieldSignature.getSignature()));
 
             int numConsumed = getNumWordsConsumed(obj);
             int numProduced = getNumWordsProduced(obj);
@@ -250,13 +275,14 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         }
 
         Taint taint = null;
-        // TODO: reorder for performance reasons (get a hashmap value here vs. traversing classes above)
+        // TODO: reorder for performance reasons (get a hashmap value here first vs. traversing classes above)
         try {
             Taint parentTaint = getFrame().getTopValue();
 
             taint = parentTaint.getFieldTaint(fieldName);
             if (taint == null) {
                 taint = TaintFactory.createTaint(obj.getSignature(cpg), state);
+                // taint depends on a field
                 taint.setField(parentTaint, fieldName);
             } else {
                 state = taint.getState();
@@ -289,12 +315,19 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             Taint parentTaint = operands[0];
             Taint fieldTaint = operands[1];
 
-            parentTaint.setFieldTaint(obj.getFieldName(cpg), fieldTaint);
+            String fieldName = obj.getFieldName(cpg);
+            parentTaint.setFieldTaint(fieldName, fieldTaint);
+
+            if (parentTaint.hasValidVariableIndex()) {
+                int variableIndex = parentTaint.getVariableIndex();
+                getFrame().getValue(variableIndex).setFieldTaint(fieldName, fieldTaint);
+            }
 
             if (!fieldTaint.getState().equals(Taint.State.SAFE)){
                 fieldTaint.addLocation(getTaintLocation(), false);
             }
-            String fieldSig = BCELUtil.getSlashedClassName(cpg, obj)+"."+obj.getName(cpg);
+
+            String fieldSig = BCELUtil.getSlashedClassName(cpg, obj) + "." + fieldName;
             fieldTaint.addSource(new UnknownSource(UnknownSourceType.FIELD, fieldTaint.getState()).setSignatureField(fieldSig));
             if (FindSecBugsGlobalConfig.getInstance().isDebugTaintState()) {
                 fieldTaint.setDebugInfo(fieldSig);
@@ -309,17 +342,17 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
     @Override
     public void visitPUTSTATIC(PUTSTATIC obj) {
         try {
-            String fieldSig = BCELUtil.getSlashedClassName(cpg, obj)+"."+obj.getName(cpg);
-            Taint staticTaint = taintConfig.getStaticFieldTaint(fieldSig, null);
+            ClassFieldSignature classFieldSignature = new ClassFieldSignature(BCELUtil.getSlashedClassName(cpg, obj), obj.getName(cpg));
+//            Taint staticTaint = analyzedMethodConfig.getStaticFieldTaint(fieldSig, taintConfig);
             Taint t = getFrame().getTopValue();
-            t = t.merge(staticTaint);
+//            t = t.merge(staticTaint);
 
             Taint.State state = t.getState();
 
             if (!state.equals(Taint.State.SAFE)){
                 t.addLocation(getTaintLocation(), false);
             }
-            t.addSource(new UnknownSource(UnknownSourceType.FIELD,state).setSignatureField(fieldSig));
+            t.addSource(new UnknownSource(UnknownSourceType.FIELD,state).setSignatureField(classFieldSignature.getSignature()));
 
             // we are escaping a method context into a global class context
             // method parameters and variables make no sense there
@@ -328,7 +361,13 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             // 2. clear method variable indexes
             t.invalidateVariableIndex();
 
-            taintConfig.putStaticFieldTaint(fieldSig, t);
+            if (Const.STATIC_INITIALIZER_NAME.equals(methodDescriptor.getName())) {
+                // static variables initialized inside <clinit> save into global static context
+                taintConfig.putStaticFieldTaint(classFieldSignature, t);
+            } else {
+                analyzedMethodConfig.setStaticFieldTaint(classFieldSignature, t);
+            }
+
         } catch (DataflowAnalysisException e) {
         }
 
@@ -519,7 +558,6 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
     public void visitReturnInstruction(ReturnInstruction obj) {
         List<Integer> parametersLocalValueIndexes = new ArrayList<>();
 
-//        int localValueIndex = 0;
 //        LocalVariableGen[] localVariables = methodGen.getLocalVariables();
 //        for (LocalVariableGen localVariable : localVariables) {
 //            String parameter = localVariable.getType().getSignature();
@@ -527,61 +565,64 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
 //            switch (parameter.charAt(0)) {
 
         GenericSignatureParser genericSignatureParser = new GenericSignatureParser(methodDescriptor.getSignature());
-        int localValueIndex = 0;
-        //  non-static methods have the class instance as the first index
+
+        int stackIndex = 0;
         if (!methodDescriptor.isStatic()) {
-            localValueIndex++;
+            parametersLocalValueIndexes.add(0);
+            stackIndex++;
         }
-        for (Iterator<String> it = genericSignatureParser.parameterSignatureIterator(); it.hasNext();) {
-            String parameter = it.next();
+
+        for (Iterator<String> parameterSignatureIterator = genericSignatureParser.parameterSignatureIterator(); parameterSignatureIterator.hasNext();){
+            String parameter = parameterSignatureIterator.next();
+
             switch (parameter.charAt(0)) {
                 case 'D':
                 case 'J':
                     // double and long occupy two slots
-                    localValueIndex++;
+                    stackIndex++;
                     break;
                 case '[':
                     // back-propagate array taints
-                    parametersLocalValueIndexes.add(localValueIndex);
+                    parametersLocalValueIndexes.add(stackIndex);
                     break;
                 case 'L':
                     // back-propagate mutable class taints
                     if (!taintConfig.isClassImmutable(parameter)) {
-                        parametersLocalValueIndexes.add(localValueIndex);
+                        parametersLocalValueIndexes.add(stackIndex);
                     }
                     else {
                         // back-propage immutable taints only when they transfer tags
-                        Taint taint = getFrame().getValue(localValueIndex);
+                        Taint taint = getFrame().getValue(stackIndex);
                         if (taint.hasTags() || taint.isRemovingTags()) {
-                            parametersLocalValueIndexes.add(localValueIndex);
+                            parametersLocalValueIndexes.add(stackIndex);
                         }
                     }
                     break;
             }
 
-            localValueIndex++;
+            stackIndex++;
         }
 
-        int parametersCount = localValueIndex;
+        int stackSize = stackIndex;
 
         for (int parameterLocalValueIndex : parametersLocalValueIndexes) {
             Taint parameterTaint = getFrame().getValue(parameterLocalValueIndex);
-            int stackIndex = (parametersCount - 1) - parameterLocalValueIndex;
+            int parameterIndex = (stackSize - 1) - parameterLocalValueIndex;
 
             if (!parameterTaint.isUnknown()) {
-                analyzedMethodConfig.setParameterOutputTaint(stackIndex, parameterTaint);
+                analyzedMethodConfig.setParameterOutputTaint(parameterIndex, parameterTaint);
             }
             else if (parameterTaint.getNonParametricState() != Taint.State.INVALID) {
-                analyzedMethodConfig.setParameterOutputTaint(stackIndex, parameterTaint);
+                analyzedMethodConfig.setParameterOutputTaint(parameterIndex, parameterTaint);
             }
             else if (parameterTaint.hasTags() || parameterTaint.isRemovingTags()) {
-                analyzedMethodConfig.setParameterOutputTaint(stackIndex, parameterTaint);
+                analyzedMethodConfig.setParameterOutputTaint(parameterIndex, parameterTaint);
             }
             else if (parameterTaint.getParameters().size() > 1) {
-                analyzedMethodConfig.setParameterOutputTaint(stackIndex, parameterTaint);
+                analyzedMethodConfig.setParameterOutputTaint(parameterIndex, parameterTaint);
             }
             else if (parameterTaint.getFieldTaints() != null) {
-                analyzedMethodConfig.setParameterOutputTaint(stackIndex, parameterTaint);
+                analyzedMethodConfig.setParameterOutputTaint(parameterIndex, parameterTaint);
             }
         }
 
@@ -825,32 +866,42 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
     }
 
     private Taint mergeTaintWithStack(Taint taint) {
+        return mergeTaintWithStack(taint, true);
+    }
+
+    private Taint mergeTaintWithStack(Taint taint, boolean mergeChildren) {
         assert taint != null;
         Taint result = taint;
 
         boolean mergedWithStack = false;
-        if (taint.isUnknown() && (taint.hasParameters() || taint.hasFields())) {
+        if (taint.isUnresolved()) {
+            result = null;
+
             // taint consisting of merged parameters only
-            Taint transferParametersTaint = null;
             if (taint.hasParameters()) {
-                transferParametersTaint = mergeTransferParameters(taint.getParameters());
+                Taint transferParametersTaint = mergeTransferParameters(taint.getParameters());
                 assert transferParametersTaint != null;
+
+                result = transferParametersTaint;
             }
 
             // taint depends on fields
-            Taint transferFieldsTaint = null;
             if (taint.hasFields()) {
-                transferFieldsTaint = mergeTransferFields(taint.getFields());
+                Taint transferFieldsTaint = mergeTransferFields(taint.getFields());
                 assert transferFieldsTaint != null;
+
+                result = transferFieldsTaint.merge(result);
             }
 
-            if (transferParametersTaint == null) {
-                result = transferFieldsTaint;
-            } else if (transferFieldsTaint == null) {
-                result = transferParametersTaint;
-            } else {
-                result = transferParametersTaint.merge(transferFieldsTaint);
+            // taint depends on static fields
+            if (taint.hasStaticFields()) {
+                Taint transferStaticFieldsTaint = mergeStaticTransferFields(taint.getStaticFields());
+                assert transferStaticFieldsTaint != null;
+
+                result = transferStaticFieldsTaint.merge(result);
             }
+
+            assert result != null;
 
             if (taint.getNonParametricState() != Taint.State.INVALID) {
                 // if the method body has own inner state then merge with parameters
@@ -886,12 +937,12 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         if (result.isTainted()) {
             result.addLocation(getTaintLocation(), true);
         }
-        else if (result.isUnknown()) {
+        else if (result.isUnknown() || result.isUnresolved()) {
             result.addLocation(getTaintLocation(), false);
         }
 
         // merge taint class fields with stack
-        if (taint.getFieldTaints() != null) {
+        if (mergeChildren && taint.getFieldTaints() != null) {
             for (Map.Entry<String, Taint> fieldTaintEntry : taint.getFieldTaints().entrySet()) {
                 String fieldName = fieldTaintEntry.getKey();
                 Taint fieldTaint = fieldTaintEntry.getValue();
@@ -924,7 +975,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                 if (mergedTaint.isTainted()) {
                     mergedTaint.addLocation(getTaintLocation(), true);
                 }
-                else if (mergedTaint.isUnknown()) {
+                else if (mergedTaint.isUnknown() || mergedTaint.isUnresolved()) {
                     mergedTaint.addLocation(getTaintLocation(), false);
                 }
 
@@ -968,6 +1019,20 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                     taint = mergeTaintWithStack(taint);
 
                     Taint stackValue = getFrame().getStackValue(stackIndex);
+                    taint = taint.merge(stackValue);
+
+                    // don't add tags to safe values
+                    if (!taint.isSafe() && parameterTaint.hasTags()) {
+                        for (Taint.Tag tag : parameterTaint.getTags()) {
+                            taint.addTag(tag);
+                        }
+                    }
+                    if (parameterTaint.isRemovingTags()) {
+                        for (Taint.Tag tag : parameterTaint.getTagsToRemove()) {
+                            taint.removeTag(tag);
+                        }
+                    }
+
                     if (stackValue.hasValidVariableIndex()) {
                         taint.setVariableIndex(stackValue.getVariableIndex());
                     } else {
@@ -1045,11 +1110,12 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         for (Taint.FieldTuple transferField : transferFields) {
             Taint parentTaint = transferField.getParentTaint();
 
-            parentTaint = mergeTaintWithStack(parentTaint);
+            parentTaint = mergeTaintWithStack(parentTaint, false);
 
             Taint fieldTaint = parentTaint.getFieldTaint(transferField.getFieldName());
             if (fieldTaint == null) {
                 taint = TaintFactory.createTaint(Taint.State.UNKNOWN).merge(taint);
+                taint.setField(parentTaint, transferField.getFieldName());
             }
             else if (fieldTaint.isSafe()) {
                 safeTaint = fieldTaint.merge(safeTaint);
@@ -1063,6 +1129,58 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             return safeTaint;
         }
         return taint;
+    }
+
+    private Taint mergeStaticTransferFields(Set<ClassFieldSignature> transferStaticFields) {
+        assert transferStaticFields != null && !transferStaticFields.isEmpty();
+        Taint taint = null;
+        Taint safeTaint = null;
+        for (ClassFieldSignature transferStaticFieldSig : transferStaticFields) {
+            Taint staticFieldTaint = getStaticFieldTaint(transferStaticFieldSig, analyzedMethodConfig, taintConfig);
+
+            if (staticFieldTaint.isSafe()) {
+                safeTaint = staticFieldTaint.merge(safeTaint);
+            } else {
+                taint = staticFieldTaint.merge(taint);
+            }
+        }
+
+        assert taint != null || safeTaint != null;
+        if (taint == null) {
+            return safeTaint;
+        }
+        return taint;
+    }
+
+    private Taint getStaticFieldTaint(ClassFieldSignature classFieldSignature, TaintMethodConfig analyzedMethodConfig, TaintConfig taintConfig) {
+        Taint staticFieldTaint = analyzedMethodConfig.getStaticFieldTaint(classFieldSignature);
+
+        if (staticFieldTaint != null) {
+            return staticFieldTaint;
+        }
+
+        staticFieldTaint = taintConfig.getStaticFieldTaint(classFieldSignature);
+
+        if (staticFieldTaint != null) {
+            // set reference to the static field like it would be unset
+            // static field taint depends on a global static context that can change over time
+            staticFieldTaint.addStaticField(classFieldSignature);
+
+            return staticFieldTaint;
+        }
+
+        Taint.State state = taintConfig.getFieldTaintState(classFieldSignature.getSignature(), Taint.State.INVALID);
+        if (state == Taint.State.INVALID) {
+            state = taintConfig.getClassTaintState(classFieldSignature.getClassName(), Taint.State.INVALID);
+        }
+        if (state == Taint.State.INVALID) {
+            state = Taint.State.UNKNOWN;
+        }
+
+        staticFieldTaint = TaintFactory.createTaint(state);
+        staticFieldTaint.addStaticField(classFieldSignature);
+
+        return staticFieldTaint;
     }
 
     private void transferTaintToMutables(TaintMethodConfig methodConfig, Taint taint) {

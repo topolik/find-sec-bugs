@@ -18,9 +18,9 @@
 package com.h3xstream.findsecbugs.taintanalysis;
 
 import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
+import com.h3xstream.findsecbugs.injection.ClassFieldSignature;
 import com.h3xstream.findsecbugs.taintanalysis.data.TaintLocation;
 import com.h3xstream.findsecbugs.taintanalysis.data.UnknownSource;
-import com.h3xstream.findsecbugs.taintanalysis.taint.ObjectTaint;
 import com.h3xstream.findsecbugs.taintanalysis.taint.TaintFactory;
 import edu.umd.cs.findbugs.ba.AnalysisContext;
 import edu.umd.cs.findbugs.util.ClassName;
@@ -58,7 +58,31 @@ public class Taint {
         return Collections.unmodifiableSet(fields);
     }
 
-    class FieldTuple {
+    public Set<ClassFieldSignature> getStaticFields() {
+        if (staticFields == null) {
+            return null;
+        }
+
+        return Collections.unmodifiableSet(staticFields);
+    }
+
+    public void addStaticField(ClassFieldSignature classFieldSignature) {
+        if (staticFields == null) {
+            staticFields = new HashSet<>();
+        }
+
+        staticFields.add(classFieldSignature);
+    }
+
+    public boolean hasStaticFields() {
+        return staticFields != null && !staticFields.isEmpty();
+    }
+
+    public boolean isUnresolved() {
+        return hasParameters() || hasFields() || hasStaticFields();
+    }
+
+    public class FieldTuple {
         final Taint parentTaint;
         final String fieldName;
 
@@ -215,6 +239,7 @@ public class Taint {
     private String typeSignature;
     private String contextPath;
     private Set<FieldTuple> fields;
+    private Set<ClassFieldSignature> staticFields;
 
     /**
      * Constructs a new empty instance of Taint with the specified state
@@ -281,6 +306,10 @@ public class Taint {
             this.fields = new HashSet<>(taint.fields);
         }
 
+        if (taint.hasStaticFields()) {
+            this.staticFields = new HashSet<>(taint.staticFields);
+        }
+
         if (taint.fieldTaints != null) {
             taint.fieldTaints.forEach((fieldName, fieldTaint) -> setFieldTaint(fieldName, fieldTaint.clone()));
         }
@@ -313,7 +342,7 @@ public class Taint {
         if (taintLocations!= null && taintLocations.size() > 0) {
             return true;
         }
-        if(hasFields()) {
+        if(hasFields() || hasStaticFields()) {
             return true;
         }
         if (fieldTaints != null) {
@@ -824,6 +853,34 @@ public class Taint {
             }
         }
 
+        int fieldsSize =
+                (a.hasFields() ? a.fields.size() : 0) +
+                        (b.hasFields() ?  b.fields.size() : 0);
+        if (fieldsSize > 0) {
+            result.fields = new HashSet<>(fieldsSize);
+
+            if (a.hasFields()) {
+                result.fields.addAll(a.fields);
+            }
+            if (b.hasFields()) {
+                result.fields.addAll(b.fields);
+            }
+        }
+
+        int staticFieldsSize =
+                (a.hasStaticFields() ? a.staticFields.size() : 0) +
+                        (b.hasStaticFields() ?  b.staticFields.size() : 0);
+        if (staticFieldsSize > 0) {
+            result.staticFields = new HashSet<>(staticFieldsSize);
+
+            if (a.hasStaticFields()) {
+                result.staticFields.addAll(a.staticFields);
+            }
+            if (b.hasStaticFields()) {
+                result.staticFields.addAll(b.staticFields);
+            }
+        }
+
         return result;
     }
 
@@ -929,13 +986,15 @@ public class Taint {
                 && Objects.equals(this.realInstanceClass, other.realInstanceClass)
                 //&& this.tags.equals(other.tags)
                 //&& Objects.equals(this.constantValue, other.constantValue)
+                && Objects.equals(this.fields, other.fields)
+                && Objects.equals(this.staticFields, other.staticFields)
+                && Objects.equals(this.fields, other.fields)
         ;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(state, variableIndex, taintLocations, unknownLocations,
-                parameters, nonParametricState, realInstanceClass, tags, constantValue);
+        return Objects.hash(state, variableIndex, taintLocations, unknownLocations, parameters, nonParametricState, realInstanceClass, realInstanceClassName, tags, tagsToRemove, constantValue, potentialValue, debugInfo, sources, typeSignature, contextPath, fields, staticFields, fieldTaints);
     }
 
     /**
@@ -974,7 +1033,7 @@ public class Taint {
         this.sources.add(source);
     }
 
-    protected void addAllSources(Set<UnknownSource> sources) {
+    public void addAllSources(Set<UnknownSource> sources) {
         if (sources == null) {
             return;
         }
@@ -1016,6 +1075,9 @@ public class Taint {
         if (nonParametricState != State.INVALID) {
             sb.append('(').append(nonParametricState.name().substring(0, 1)).append(')');
         }
+        if (typeSignature != null) {
+            sb.append(' ').append(typeSignature);
+        }
         if (sources != null && sources.size() > 0) {
             StringBuilder b = new StringBuilder();
             for(UnknownSource source : sources) {
@@ -1027,7 +1089,13 @@ public class Taint {
                         b.append("method["+source.getSignatureMethod()+"]");
                         break;
                     case PARAMETER:
-                        b.append("parameter["+source.getParameterIndex()+"]");
+                        b.append("parameter[");
+                        if (!source.getSignatureMethod().isEmpty()) {
+                            b.append(source.getSignatureMethod());
+                            b.append(":");
+                        }
+                        b.append(source.getParameterIndex());
+                        b.append("]");
                         break;
                 }
             }
@@ -1044,6 +1112,9 @@ public class Taint {
         }
         if (hasFields()) {
             sb.append(" fields=").append(fields.toString());
+        }
+        if (hasStaticFields()) {
+            sb.append(" staticFields=").append(staticFields.toString());
         }
         if (fieldTaints != null && !fieldTaints.isEmpty()) {
             sb.append(" fieldTaints=").append(fieldTaints);

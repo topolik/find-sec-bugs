@@ -141,7 +141,7 @@ public class TaintFrame extends Frame<Taint> {
             int nb = getNumLocals();
             for (int i = 0; i < nb; i++) {
                 Taint taintValue = getValue(i);
-                str.append("| ").append(variableNames[i]).append(" = ")
+                str.append("| ").append(variableNames[i] != null ? variableNames[i] : i).append(" = ")
                         .append(taintValue == null ? "<not set>" : taintValue.toString())
                         .append("\n");
             }

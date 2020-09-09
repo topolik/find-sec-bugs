@@ -17,6 +17,7 @@
  */
 package com.h3xstream.findsecbugs.taintanalysis;
 
+import com.h3xstream.findsecbugs.injection.ClassFieldSignature;
 import com.h3xstream.findsecbugs.taintanalysis.taint.TaintFactory;
 
 import java.io.IOException;
@@ -42,6 +43,7 @@ public class TaintMethodConfig implements TaintTypeConfig {
     private final Set<Integer> mutableStackIndices;
     private final boolean isConfigured;
     private String typeSignature;
+    private Map<ClassFieldSignature, Taint> staticFieldsTaints;
     public static final TaintMethodConfig SAFE_CONFIG;
     protected static final Pattern fullMethodPattern;
     protected static final Pattern configPattern;
@@ -198,6 +200,9 @@ public class TaintMethodConfig implements TaintTypeConfig {
             return true;
         }
         if (parametersOutputTaints.size() > 0) {
+            return true;
+        }
+        if (staticFieldsTaints != null && !staticFieldsTaints.isEmpty()) {
             return true;
         }
 
@@ -481,22 +486,22 @@ public class TaintMethodConfig implements TaintTypeConfig {
     /**
      * Stores output taint for method parameters to be used for back-propagation.<br />
      * <br />
-     * Please note the stackIndex is in reverse order compared to the method parameters (and frame local variables),
-     * i.e. the last method parameter has index 0.
+     * Please note the stackValueIndex is in reverse order compared to frame local variables,
+     * i.e. the last method parameter is on the stack top (has index 0).
      *
-     * @param stackIndex Index of the parameter on the stack
+     * @param stackValueIndex Index of the parameter on the stack, counting downwards from the top (stackValueIndex 0)
      * @param taint Output taint of the parameter
      */
-    public void setParameterOutputTaint(int stackIndex, Taint taint) {
+    public void setParameterOutputTaint(int stackValueIndex, Taint taint) {
         parametersOutputTaints.compute(
-                stackIndex, (__, existingTaint) -> taint.merge(existingTaint));
+                stackValueIndex, (__, existingTaint) -> taint.merge(existingTaint));
     }
 
     /**
      * Returns computed output taints for method parameters for back-propagation.<br />
      * <br />
-     * Please note the stackIndex is in reverse order compared to the method parameters (and frame local variables),
-     * i.e. the last parameter has index 0.
+     * Please note the stackValueIndex is in reverse order compared to frame local variables,
+     * i.e. the last method parameter is on the stack top (has index 0).
      *
      * @return Unmodifiable copy of parameters' taints, indexed by parameter position on the stack
      */
@@ -510,5 +515,31 @@ public class TaintMethodConfig implements TaintTypeConfig {
 
     public boolean isParametersOutputTaintsProcessed() {
         return parametersOutputTaintsProcessed;
+    }
+
+    /**
+     * Returns static field taint changed during the method execution
+     * @param classFieldSignature Field signature (e.g. java/io/File.path)
+     * @return New taint of the static field or null when the field was not changed
+     */
+    public Taint getStaticFieldTaint(ClassFieldSignature classFieldSignature) {
+        if (staticFieldsTaints != null) {
+            return staticFieldsTaints.get(classFieldSignature);
+        }
+
+        return null;
+    }
+
+    /**
+     * Saves changed static field taint into the method config
+     * @param classFieldSignature Field signature (e.g. java/io/File.path)
+     * @param taint The new taint
+     */
+    public void setStaticFieldTaint(ClassFieldSignature classFieldSignature, Taint taint) {
+        if (staticFieldsTaints == null) {
+            staticFieldsTaints = new HashMap<>();
+        }
+
+        staticFieldsTaints.put(classFieldSignature, taint);
     }
 }

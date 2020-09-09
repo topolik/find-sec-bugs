@@ -31,6 +31,10 @@ public class TaintCustomConfigTest extends BaseDetectorTest {
 
     @Test
     public void withCustomConfigEnable() throws Exception {
+        FindSecBugsGlobalConfig.getInstance().setDebugPrintInstructionVisited(true);
+        FindSecBugsGlobalConfig.getInstance().setDebugTaintState(true);
+
+
         URL configUrl = this.getClass().getResource("/com/h3xstream/findsecbugs/taintanalysis/CustomConfig.txt");
         File configFile = new File(configUrl.toURI());
 
@@ -57,6 +61,9 @@ public class TaintCustomConfigTest extends BaseDetectorTest {
 
     @Test
     public void withCustomConfigDisable() throws Exception {
+        FindSecBugsGlobalConfig.getInstance().setDebugPrintInstructionVisited(true);
+        FindSecBugsGlobalConfig.getInstance().setDebugTaintState(true);
+
 //        URL configUrl = this.getClass().getResource("/com/h3xstream/findsecbugs/taintanalysis/CustomConfig.txt");
 //        File configFile = new File(configUrl.toURI());
 //

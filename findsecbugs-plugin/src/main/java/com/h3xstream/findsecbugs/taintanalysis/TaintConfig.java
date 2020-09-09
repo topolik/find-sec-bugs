@@ -18,6 +18,7 @@
 package com.h3xstream.findsecbugs.taintanalysis;
 
 import com.h3xstream.findsecbugs.BCELUtil;
+import com.h3xstream.findsecbugs.injection.ClassFieldSignature;
 import edu.umd.cs.findbugs.ba.AnalysisContext;
 import edu.umd.cs.findbugs.ba.DataflowAnalysisException;
 import edu.umd.cs.findbugs.ba.SignatureParser;
@@ -56,7 +57,7 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
     private final Map<String, TaintMethodConfigWithArgumentsAndLocation> taintMethodConfigWithArgumentsAndLocationMap =
             new HashMap<String, TaintMethodConfigWithArgumentsAndLocation>();
 
-    private final Map<String, Taint> staticFieldsTaint = new HashMap<String, Taint>();
+    private final Map<ClassFieldSignature, Taint> staticFieldsTaint = new HashMap<ClassFieldSignature, Taint>();
 
     /**
      * Dumps all the summaries for debugging
@@ -304,21 +305,20 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
         return taintMethodConfigWithArgumentsAndLocationMap.get(key);
     }
 
-    public Taint getStaticFieldTaint(String fieldSignature, Taint defaultValue) {
-        if (!isFieldType(fieldSignature)) {
-            return defaultValue;
+    public Taint getStaticFieldTaint(ClassFieldSignature classFieldSignature) {
+        if (!isFieldType(classFieldSignature.getSignature())) {
+            return null;
         }
 
-        return staticFieldsTaint.getOrDefault(fieldSignature, defaultValue);
+        return staticFieldsTaint.get(classFieldSignature);
     }
 
-    public void putStaticFieldTaint(String fieldSignature, Taint t) {
-        if (!isFieldType(fieldSignature)) {
+    public void putStaticFieldTaint(ClassFieldSignature classFieldSignature, Taint t) {
+        if (!isFieldType(classFieldSignature.getSignature())) {
             return;
         }
 
-        staticFieldsTaint.put(fieldSignature, t);
+        staticFieldsTaint.put(classFieldSignature, t);
     }
-
 
 }

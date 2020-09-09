@@ -52,11 +52,11 @@ public class ParameterTaintBackPropagation {
         sessionFactory.openSession().createQuery("FROM comment WHERE userId=" + tainted);
     }
 
-    private boolean appendRequestParameter1(long l1, StringBuffer sb, long l2, String name, long l3) {
-        return appendRequestParameter(l1, sb, l2, name, l3);
+    private boolean appendRequestParameter1(double d1, StringBuffer sb, long l2, String name, long l3) {
+        return appendRequestParameter(d1, sb, l2, name, l3);
     }
 
-    private boolean appendRequestParameter(long l1, StringBuffer sb, long l2, String name, long l3) {
+    private boolean appendRequestParameter(double d1, StringBuffer sb, long l2, String name, long l3) {
         String parameter = request.getParameter(name);
 
         if (parameter != null) {
@@ -65,7 +65,7 @@ public class ParameterTaintBackPropagation {
             return true;
         }
         else {
-            sb.append(l1 + l2 + l3);
+            sb.append(d1 + l2 + l3);
 
             return false;
         }

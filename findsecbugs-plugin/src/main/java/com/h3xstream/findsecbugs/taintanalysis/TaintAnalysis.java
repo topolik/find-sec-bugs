@@ -61,11 +61,12 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
     private int parameterStackSize;
     private List<Integer> slotToParameter;
     private List<String> parameterTypes;
+    private TaintConfig taintConfig;
 
     private static final List<String> TAINTED_ANNOTATIONS = loadFileContent(
             "taint-config/taint-param-annotations.txt"
     );
-    
+
     /**
      * Constructs analysis for the given method
      * 
@@ -79,6 +80,7 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
         super(dfs);
         this.methodGen = methodGen;
         this.methodDescriptor = (MethodInfo) descriptor;
+        this.taintConfig = taintConfig;
         this.visitor = new TaintFrameModelingVisitor(methodGen.getConstantPool(), descriptor, taintConfig, visitors, methodGen);
         computeParametersInfo(descriptor.getSignature(), descriptor.isStatic());
     }
@@ -160,6 +162,11 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
             }
             fact.setValue(i, value);
         }
+
+        if (FindSecBugsGlobalConfig.getInstance().isDebugPrintInstructionVisited()) {
+            System.out.println(fact.toString());
+        }
+
     }
 
     /**
@@ -224,6 +231,10 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
      */
     public void finishAnalysis() {
         visitor.finishAnalysis();
+    }
+
+    public TaintConfig getTaintConfig() {
+        return taintConfig;
     }
 
     /**

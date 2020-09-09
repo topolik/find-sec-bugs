@@ -30,9 +30,11 @@ public class StaticContextTaintPropagation {
 
     private static String simpleStaticVar = "Test";
     private static String computedStaticVar = "(" + surround(simpleStaticVar, "%") + ")";
+    private final static String finalSimpleStaticVar = "Test";
+    private final static String finalComputedStaticVar = "(" + surround(simpleStaticVar, "%") + ")";
 
     private static String propagatingStaticVar = "";
-
+//
     private static String surround(String a, String b) {
         if (a == null) {
             return b + b;
@@ -41,8 +43,14 @@ public class StaticContextTaintPropagation {
         return b + a + b;
     }
 
-    public void falsePositive() {
+    public void unknown() {
         sessionFactory.openSession().createQuery("FROM comment WHERE userId like " + computedStaticVar);
+    }
+
+    public void falsePositive() {
+        sessionFactory.openSession().createQuery("FROM comment WHERE userId like " + finalSimpleStaticVar);
+
+        sessionFactory.openSession().createQuery("FROM comment WHERE userId like " + finalComputedStaticVar);
     }
 
     public void taintedValue() {
