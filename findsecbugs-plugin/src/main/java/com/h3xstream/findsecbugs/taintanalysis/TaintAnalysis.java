@@ -45,7 +45,7 @@ import org.apache.bcel.generic.MethodGen;
 /**
  * Implements taint dataflow operations, in particular meeting facts, transfer
  * function is delegated to {@link TaintFrameModelingVisitor}
- * 
+ *
  * @author David Formanek (Y Soft Corporation, a.s.)
  */
 public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
@@ -59,10 +59,10 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
     private static final List<String> TAINTED_ANNOTATIONS = loadFileContent(
             "taint-config/taint-param-annotations.txt"
     );
-    
+
     /**
      * Constructs analysis for the given method
-     * 
+     *
      * @param methodGen method to analyze
      * @param dfs DFS algorithm
      * @param descriptor descriptor of the method to analyze
@@ -174,7 +174,7 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
         }
         return false;
     }
-    
+
     @Override
     public void meetInto(TaintFrame fact, Edge edge, TaintFrame result)
             throws DataflowAnalysisException {
@@ -189,7 +189,7 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
         }
         mergeInto(fact, result);
     }
-    
+
     /**
      * This method must be called after executing the data flow
      */
@@ -264,7 +264,7 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
     private static List<String> loadFileContent(String path) {
         try (InputStream in = TaintAnalysis.class.getClassLoader().getResourceAsStream(path);
              BufferedReader stream = new BufferedReader(new InputStreamReader(in, "utf-8"))) {
-            
+
             String line;
             List<String> content = new ArrayList<String>();
             while ((line = stream.readLine()) != null) {

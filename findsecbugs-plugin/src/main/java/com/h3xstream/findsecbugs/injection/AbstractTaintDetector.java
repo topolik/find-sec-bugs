@@ -29,13 +29,13 @@ import edu.umd.cs.findbugs.bcel.BCELUtil;
 import edu.umd.cs.findbugs.classfile.CheckedAnalysisException;
 import edu.umd.cs.findbugs.classfile.Global;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
-import java.util.Iterator;
 import org.apache.bcel.classfile.Method;
 import org.apache.bcel.generic.ConstantPoolGen;
 import org.apache.bcel.generic.Instruction;
 import org.apache.bcel.generic.InstructionHandle;
 import org.apache.bcel.generic.InvokeInstruction;
-import org.apache.bcel.generic.MethodGen;
+
+import java.util.Iterator;
 
 /**
  * Detector designed for extension to allow usage of taint analysis
@@ -43,9 +43,9 @@ import org.apache.bcel.generic.MethodGen;
  * @author David Formanek (Y Soft Corporation, a.s.)
  */
 public abstract class AbstractTaintDetector implements Detector {
-    
+
     protected final BugReporter bugReporter;
-    
+
     protected AbstractTaintDetector(BugReporter bugReporter) {
         this.bugReporter = bugReporter;
     }
@@ -62,32 +62,15 @@ public abstract class AbstractTaintDetector implements Detector {
     public boolean shouldAnalyzeClass(ClassContext classContext) {
         return true;
     }
-    
+
     @Override
     public void visitClassContext(ClassContext classContext) {
         if(!shouldAnalyzeClass(classContext)) {
             return;
         }
-        for (Method method : classContext.getMethodsInCallOrder()) {
+
+        for (Method method : MethodsCallOrder_SpotBugsIssue3159.ClassContext_getMethodsInCallOrder(classContext)) {
             if (classContext.getMethodGen(method) == null) {
-                continue;
-            }
-            if (!method.isStatic()) {
-                continue;
-            }
-            try {
-                analyzeMethod(classContext, method);
-            } catch (CheckedAnalysisException e) {
-                logException(classContext, method, e);
-            } catch (RuntimeException e) {
-                logException(classContext, method, e);
-            }
-        }
-        for (Method method : classContext.getMethodsInCallOrder()) {
-            if (classContext.getMethodGen(method) == null) {
-                continue;
-            }
-            if (method.isStatic()) {
                 continue;
             }
             try {
@@ -103,10 +86,12 @@ public abstract class AbstractTaintDetector implements Detector {
     @Override
     public void report() {
     }
-    
+
     protected void analyzeMethod(ClassContext classContext, Method method)
             throws CheckedAnalysisException {
+        // trigger data flow analysis
         TaintDataflow dataflow = getTaintDataFlow(classContext, method);
+        // analyze instructions of the method to discover injection points and match with taint data flow analysis
         ConstantPoolGen cpg = classContext.getConstantPoolGen();
         ClassMethodSignature classMethodSignature = new ClassMethodSignature(
                 com.h3xstream.findsecbugs.BCELUtil.getSlashedClassName(classContext.getJavaClass()), method.getName(), method.getSignature());
@@ -126,7 +111,7 @@ public abstract class AbstractTaintDetector implements Detector {
             analyzeLocation(classContext, method, handle, cpg, invoke, fact, classMethodSignature);
         }
     }
-    
+
     private static Iterator<Location> getLocationIterator(ClassContext classContext, Method method)
             throws CheckedAnalysisException {
         try {
@@ -135,18 +120,18 @@ public abstract class AbstractTaintDetector implements Detector {
             throw new CheckedAnalysisException("cannot get control flow graph", ex);
         }
     }
-    
+
     private static TaintDataflow getTaintDataFlow(ClassContext classContext, Method method)
             throws CheckedAnalysisException {
         MethodDescriptor descriptor = BCELUtil.getMethodDescriptor(classContext.getJavaClass(), method);
         return Global.getAnalysisCache().getMethodAnalysis(TaintDataflow.class, descriptor);
     }
-    
+
     private void logException(ClassContext classContext, Method method, Exception ex) {
         bugReporter.logError("Exception while analyzing "
                 + classContext.getFullyQualifiedMethodName(method), ex);
     }
-    
+
     abstract protected void analyzeLocation(ClassContext classContext, Method method, InstructionHandle handle,
             ConstantPoolGen cpg, InvokeInstruction invoke, TaintFrame fact, ClassMethodSignature classMethodSignature)
             throws DataflowAnalysisException;

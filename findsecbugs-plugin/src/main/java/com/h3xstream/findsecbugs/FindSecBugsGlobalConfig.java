@@ -34,9 +34,10 @@ public class FindSecBugsGlobalConfig {
     private boolean debugTaintState = false;
     private boolean workaroundVisitInvokeDynamic = false;
     private boolean verboseLocationReport = false;
-    
+
     // set through SystemProperties
     private boolean debugOutputTaintConfigs;
+    private boolean debugOutputSinkConfigs;
     private boolean taintedSystemVariables;
     private String customConfigFile;
     private boolean taintedMainArgument;
@@ -44,11 +45,13 @@ public class FindSecBugsGlobalConfig {
 
     protected FindSecBugsGlobalConfig() {
         debugOutputTaintConfigs = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.outputconfigs", Boolean.FALSE.toString()));
+        debugOutputSinkConfigs = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.debugoutputsinkconfigs", Boolean.FALSE.toString()));
         taintedSystemVariables = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.taintedsystemvariables", Boolean.FALSE.toString()));
         customConfigFile = loadFromSystem("findsecbugs.taint.customconfigfile", null);
         taintedMainArgument = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.taintedmainargument", Boolean.TRUE.toString()));
         reportPotentialXssWrongContext = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.reportpotentialxsswrongcontext", Boolean.FALSE.toString()));
         debugTaintState = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.debugtaintstate", Boolean.FALSE.toString()));
+        debugPrintInstructionVisited = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.debugprintinstructionvisited", Boolean.FALSE.toString()));
         workaroundVisitInvokeDynamic = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.workaroundvisitinvokedynamic", Boolean.FALSE.toString()));
         verboseLocationReport = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.verboselocationreport", Boolean.FALSE.toString()));
     }
@@ -168,5 +171,13 @@ public class FindSecBugsGlobalConfig {
 
     public void setReportPotentialXssWrongContext(boolean reportPotentialXssWrongContext) {
         this.reportPotentialXssWrongContext = reportPotentialXssWrongContext;
+    }
+
+    public boolean isDebugOutputSinkConfigs() {
+        return debugOutputSinkConfigs;
+    }
+
+    public void setDebugOutputSinkConfigs(boolean debugOutputSinkConfigs) {
+        this.debugOutputSinkConfigs = debugOutputSinkConfigs;
     }
 }

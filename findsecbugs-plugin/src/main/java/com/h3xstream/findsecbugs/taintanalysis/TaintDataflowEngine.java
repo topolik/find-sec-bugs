@@ -51,7 +51,7 @@ import org.apache.bcel.generic.MethodGen;
 /**
  * Requests or creates needed objects and execute taint analysis,
  * extends taint summaries with analyzed methods
- * 
+ *
  * @author David Formanek (Y Soft Corporation, a.s.)
  */
 public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow> {
@@ -146,7 +146,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
             assert false : ex.getMessage();
         }
     }
-    
+
     private void addCustomConfig(String path) {
         InputStream stream = null;
         try {
@@ -170,7 +170,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
             IO.close(stream);
         }
     }
-    
+
     @Override
     public TaintDataflow analyze(IAnalysisCache cache, MethodDescriptor descriptor)
             throws CheckedAnalysisException {
@@ -246,7 +246,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         String slashedClassName = methodGen.getClassName().replace('.', '/');
         return slashedClassName + "." + methodNameWithSignature;
     }
-    
+
     @Override
     public void registerWith(IAnalysisCache iac) {
         iac.registerMethodAnalysisEngine(TaintDataflow.class, this);

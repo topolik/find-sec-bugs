@@ -36,11 +36,11 @@ import org.apache.bcel.generic.InstructionHandle;
 
 /**
  * Used to represent location of a taint sink
- * 
+ *
  * @author David Formanek (Y Soft Corporation, a.s.)
  */
 public class InjectionSink {
-    
+
     private final Detector detector;
     private final String bugType;
     private final int originalPriority;
@@ -68,7 +68,7 @@ public class InjectionSink {
 
     /**
      * Constructs the instance and stores immutable values for reporting
-     * 
+     *
      * @param detector detctor for reporting
      * @param bugType reported bug type
      * @param originalPriority original priority (without sink confirmation)
@@ -99,7 +99,7 @@ public class InjectionSink {
 
     /**
      * Updates the priority if it is higher (which means lower number)
-     * 
+     *
      * @param priority potential new priority
      * @return true if updated, false otherwise
      */
@@ -110,10 +110,10 @@ public class InjectionSink {
         }
         return false;
     }
-    
+
     /**
      * Adds a line with tainted source or path for reporting
-     * 
+     *
      * @param line line to add
      */
     public void addLine(SourceLineAnnotation line) {
@@ -123,7 +123,7 @@ public class InjectionSink {
 
     /**
      * Adds lines with tainted source or path for reporting
-     * 
+     *
      * @param locations collection of locations used to extract lines
      */
     public void addLines(Collection<TaintLocation> locations) {
@@ -133,10 +133,10 @@ public class InjectionSink {
                 location.getMethodDescriptor(), location.getPosition()));
         }
     }
-    
+
     /**
      * Uses immutable values, updated priority and added lines for reporting
-     * 
+     *
      * @param taintedInsideMethod true if not influenced by method arguments
      * @return new bug instance filled with information
      */
@@ -221,13 +221,13 @@ public class InjectionSink {
         }
         return false;
     }
-    
+
     private void addMessage(BugInstance bug, String role, String text) {
         StringAnnotation stringAnnotation = new StringAnnotation(text);
         stringAnnotation.setDescription(role);
         bug.add(stringAnnotation);
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -267,5 +267,9 @@ public class InjectionSink {
 
     public void addSources(Set<UnknownSource> sources) {
         this.sources.addAll(sources);
+    }
+
+    public String getBugType() {
+        return bugType;
     }
 }

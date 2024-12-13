@@ -66,7 +66,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
 
     /**
      * Constructs the object and stores the parameters
-     * 
+     *
      * @param cpg constant pool gen for super class
      * @param method descriptor of analysed method
      * @param taintConfig current configured and derived taint summaries
@@ -170,7 +170,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         taint.setConstantValue(String.valueOf((char) obj.getValue().byteValue()));
         getFrame().pushValue(taint);
     }
-    
+
     @Override
     public void visitSIPUSH(SIPUSH obj) {
         Taint taint = new Taint(Taint.State.SAFE);
@@ -205,10 +205,13 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                 taint = new Taint(state);
             }
 
-            if (!state.equals(Taint.State.SAFE)){
-                taint.addLocation(getTaintLocation(), false);
+            // Existing taint might already have its sources. Otherwise mark this place as the source of troubles.
+            if (!taint.isSafe() && (taint.getSources() == null || taint.getSources().size() == 0)) {
+                taint.addSource(new UnknownSource(UnknownSourceType.FIELD, state).setSignatureField(fieldSig));
             }
-            taint.addSource(new UnknownSource(UnknownSourceType.FIELD,state).setSignatureField(fieldSig));
+            if (!taint.isSafe()) {
+                taint.addLocation(getTaintLocation(), taint.isTainted());
+            }
 
             int numConsumed = getNumWordsConsumed(obj);
             int numProduced = getNumWordsProduced(obj);
@@ -238,21 +241,28 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
 
     @Override
     public void visitGETFIELD(GETFIELD obj) {
+        Taint taint;
+
         String fieldSig = BCELUtil.getSlashedClassName(cpg, obj)+"."+obj.getName(cpg);
         Taint.State state = taintConfig.getFieldTaintState(fieldSig, Taint.State.INVALID);
         if (state == Taint.State.INVALID) {
             state = taintConfig.getClassTaintState(obj.getSignature(cpg), Taint.State.INVALID);
         }
         if (state == Taint.State.INVALID) {
-            state = Taint.State.UNKNOWN;
+            taint = taintConfig.getStaticFieldTaint(fieldSig, getDefaultValue());
+        }
+        else {
+            taint = new Taint(state);
         }
 
-        Taint taint = new Taint(state);
-
-        if (!state.equals(Taint.State.SAFE)){
-            taint.addLocation(getTaintLocation(), false);
+        // Existing taint might already have its sources. Otherwise mark this place as the source of troubles.
+        if (!taint.isSafe() && (taint.getSources() == null || taint.getSources().size() == 0)) {
+            taint.addSource(new UnknownSource(UnknownSourceType.FIELD, state).setSignatureField(fieldSig));
         }
-        taint.addSource(new UnknownSource(UnknownSourceType.FIELD,state).setSignatureField(fieldSig));
+        if (!taint.isSafe()) {
+            taint.addLocation(getTaintLocation(), taint.isTainted());
+        }
+
         if (FindSecBugsGlobalConfig.getInstance().isDebugTaintState()) {
             taint.setDebugInfo("." + obj.getFieldName(cpg));
         }
@@ -260,12 +270,36 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         int numProduced = getNumWordsProduced(obj);
         modelInstruction(obj, numConsumed, numProduced, taint);
 
-
         notifyAdditionalVisitorField(obj, methodGen, getFrame(), taint, numProduced);
     }
 
     @Override
     public void visitPUTFIELD(PUTFIELD obj) {
+        try {
+            // there's no reason in GETFIELD inferring when we are not writing Taints to the field
+            String fieldSig = BCELUtil.getSlashedClassName(cpg, obj)+"."+obj.getName(cpg);
+            // TODO: let's reuse the static field state to propagate taint through local fields as well
+            Taint staticTaint = taintConfig.getStaticFieldTaint(fieldSig, null);
+            Taint taint = getFrame().getTopValue();
+            taint = Taint.merge(taint, staticTaint);
+
+            if (!taint.isSafe()) {
+                taint.addLocation(getTaintLocation(), taint.isTainted());
+            }
+
+            // TODO: Copied from PUTSTATIC but following doesn't apply to local fields, we want to keep reference to setters, but still kind of escaping method context. Before disabling we need tests!!!
+            // we are escaping a method context into a global class context
+            // method parameters and variables make no sense there
+            // 1. clear any method parameters
+            taint.clearParameters();
+            // 2. clear method variable indexes
+            taint.invalidateVariableIndex();
+
+            // TODO: let's reuse the static field state to propagate taint through local fields as well
+            taintConfig.putStaticFieldTaint(fieldSig, taint);
+        } catch (DataflowAnalysisException e) {
+        }
+
         visitPutFieldOp(obj);
     }
 
@@ -274,17 +308,21 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         try {
             String fieldSig = BCELUtil.getSlashedClassName(cpg, obj)+"."+obj.getName(cpg);
             Taint staticTaint = taintConfig.getStaticFieldTaint(fieldSig, null);
-            Taint t = getFrame().getTopValue();
-            t = Taint.merge(t, staticTaint);
+            Taint taint = getFrame().getTopValue();
+            taint = Taint.merge(taint, staticTaint);
+
+            if (!taint.isSafe()) {
+                taint.addLocation(getTaintLocation(), taint.isTainted());
+            }
 
             // we are escaping a method context into a global class context
             // method parameters and variables make no sense there
             // 1. clear any method parameters
-            t.clearParameters();
+            taint.clearParameters();
             // 2. clear method variable indexes
-            t.invalidateVariableIndex();
+            taint.invalidateVariableIndex();
 
-            taintConfig.putStaticFieldTaint(fieldSig, t);
+            taintConfig.putStaticFieldTaint(fieldSig, taint);
         } catch (DataflowAnalysisException e) {
         }
 
@@ -481,6 +519,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
     public void visitReturnInstruction(ReturnInstruction obj) {
         List<Integer> parametersLocalValueIndexes = new ArrayList<>();
 
+        // Find the parameters that we are going to act on - mutable arguments or when propagating tags
         GenericSignatureParser genericSignatureParser = new GenericSignatureParser(methodDescriptor.getSignature());
         int localValueIndex = 0;
         //  non-static methods have the class instance as the first index
@@ -517,6 +556,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             localValueIndex++;
         }
 
+        // Record the changes to parameters to be applied later to method arguments during invocation
         int parametersCount = localValueIndex;
 
         for (int parameterLocalValueIndex : parametersLocalValueIndexes) {
@@ -524,15 +564,19 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             int stackIndex = (parametersCount - 1) - parameterLocalValueIndex;
 
             if (!parameterTaint.isUnknown()) {
+                // safe or tainted - significant change
                 analyzedMethodConfig.setParameterOutputTaint(stackIndex, parameterTaint);
             }
             else if (parameterTaint.getNonParametricState() != Taint.State.INVALID) {
+                // taint state was modified in the method body
                 analyzedMethodConfig.setParameterOutputTaint(stackIndex, parameterTaint);
             }
             else if (parameterTaint.hasTags() || parameterTaint.isRemovingTags()) {
+                // propagate tag changes
                 analyzedMethodConfig.setParameterOutputTaint(stackIndex, parameterTaint);
             }
             else if (parameterTaint.getParameters().size() > 1) {
+                // we inferred that the parameter taint is mixed with another parameter taint
                 analyzedMethodConfig.setParameterOutputTaint(stackIndex, parameterTaint);
             }
         }
@@ -566,22 +610,62 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
 
     /**
      * Regroup the method invocations (INVOKEINTERFACE, INVOKESPECIAL,
-     * INVOKESTATIC, INVOKEVIRTUAL)
-     *
+     * INVOKESTATIC, INVOKEVIRTUAL)<br />
+     *<br />
+     * The method invocation logic goes as follows:<ol>
+     *     <li>Get method config: Get the method configuration from (a) the taint-config files (b) taint-flow analysis or (c) new UNKNOWN configuration</li>
+     *     <li>Merge taint with stack: Wherever output taint references stack then load stack into the taint</li>
+     *     <li>Taint mutable arguments: Wherever method arguments are mutated by the method then apply the changes to the stack</li>
+     *     <li>Transfer taint to mutables: Wherever output taint mutates arguments then apply the changes to the stack</li>
+     *     <li>Record "source" and "location" for later use because we just called a method.</li>
+     *     <li>Notify {@link TaintFrameAdditionalVisitor}s</li>
+     *     <li>Apply the </li>
+     * </ol>
      * @param obj one of the invoke instructions
      */
     private void visitInvoke(InvokeInstruction obj) {
         assert obj != null;
         try {
+            // Retrieve a config for the invoked method. It's coming from the taint-config files, null
+            // or dynamically derived by taint analysis with complex state (locations, sources, ...)
             TaintMethodConfig methodConfig = getMethodConfig(obj);
-            Taint taint = getMethodTaint(methodConfig);
-            assert taint != null;
+            // Get the configured result for invoked method. Or defaultValue().
+            Taint outputTaint = getMethodTaint(methodConfig);
+            assert outputTaint != null;
+
             if (FindSecBugsGlobalConfig.getInstance().isDebugTaintState()) {
-                taint.setDebugInfo(obj.getMethodName(cpg) + "()"); //TODO: Deprecated debug info
+                outputTaint.setDebugInfo(obj.getMethodName(cpg) + "()"); //TODO: Deprecated debug info
             }
-            taint.addSource(new UnknownSource(UnknownSourceType.RETURN,taint.getState()).setSignatureMethod(BCELUtil.getSlashedClassName(cpg, obj)+"."+obj.getMethodName(cpg)+obj.getSignature(cpg)));
+
+            // It's time to merge the output taint with the stack values
+            // When the taint is referencing method parameters then replace the params with real stack values.
+            Taint taint = mergeTaintWithStack(outputTaint);
+
+            // The taint became dirty inside! This is the source of our troubles, let's record.
+            // This is the right time before we start propagating the taint further onto the stack
+            if (!taint.isSafe() && (!taint.hasParameters() || taint.getNonParametricState() != Taint.State.INVALID)) {
+                String invokedMethodSignature = methodConfig != null ?
+                        methodConfig.getTypeSignature() :
+                        BCELUtil.getSlashedClassName(cpg, obj)+"."+obj.getMethodName(cpg)+obj.getSignature(cpg);
+
+                taint.addSource(new UnknownSource(UnknownSourceType.RETURN, taint.getState()).setSignatureMethod(invokedMethodSignature));
+            }
+
+            // Sometimes the method arguments are not immutable (arrays, lists, ...) and are tainted inside.
+            // Let's apply the inside taint back to the arguments on the stack.
             taintMutableArguments(methodConfig, obj);
+
+            // Now it's time to apply also the output taint to the stack
             transferTaintToMutables(methodConfig, taint); // adds variable index to taint too
+
+            // We call this method so let's document
+            if (taint.isTainted()) {
+                taint.addLocation(getTaintLocation(), true);
+            }
+            else if (taint.isUnknown()) { //  && taint.getNonParametricState() != Taint.State.INVALID
+                taint.addLocation(getTaintLocation(), false);
+            }
+
 //            Taint taintCopy = new Taint(taint);
             Taint taintCopy = taint;
             // return type is not always the instance type
@@ -616,6 +700,14 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         }
     }
 
+    /**
+     * Returns configuration of the invoked method if it's known, <code>null</code> otherwise<br />
+     * <br /><ul>
+     * <li>Get {@link #taintConfig} configuration based on the signature of invoked method.</li>
+     * <li>Get {@link #taintConfig} configuration based on the signature of the method return type.</li>
+     * <li>Invoking a class constructor will result in returning {@link com.h3xstream.findsecbugs.taintanalysis.TaintMethodConfig#getDefaultConstructorConfig(int)}</li>
+     * </ul>
+     */
     private TaintMethodConfig getMethodConfig(InvokeInstruction obj) {
         String signature = obj.getSignature(cpg);
         String returnType = getReturnType(signature);
@@ -735,6 +827,9 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         return signature.substring(signature.indexOf(')') + 1);
     }
 
+    /**
+     * Returns method output taint or default value.
+     */
     private Taint getMethodTaint(TaintMethodConfig methodConfig) {
         if (methodConfig == null || methodConfig.getOutputTaint() == null) {
             return getDefaultValue();
@@ -743,18 +838,15 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         assert outputTaint != null;
         assert outputTaint != methodConfig.getOutputTaint() : "defensive copy not made";
 
-        Taint taint = mergeTaintWithStack(outputTaint);
-
-        if (taint.isTainted()) {
-            taint.addLocation(getTaintLocation(), true);
-        }
-        else if (taint.isUnknown()) {
-            taint.addLocation(getTaintLocation(), false);
-        }
-
-        return taint;
+        return outputTaint;
     }
 
+    /**
+     * Uses inferred references from inside the taint to load values from stack and apply it to the taint.
+     * The main reason is that the output taint is usually shaped by method parameters so we need to load those
+     * values from the stack and update the taint with real values - effectively propagating the stack into
+     * the taint.
+     */
     private Taint mergeTaintWithStack(Taint taint) {
         assert taint != null;
         Taint result = taint;
@@ -771,15 +863,28 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                 result = transferParametersTaint;
             }
 
-            result.addAllSources(taint.getSources());
+            for (UnknownSource source : taint.getSources()) {
+                if (UnknownSourceType.PARAMETER.equals(source.getSourceType())) {
+                    // Now is the time to drop the "source" that references the invoked method arguments.
+                    // We just used the stack to inject real taints into the method arguments and so the
+                    // "parametric source" is no longer needed.
+                    // The PARAMETER source was just to indicate information transfer. Now that we performed
+                    // the transfer it's safe to drop.
+                    continue;
+                }
 
-            // merge removes tags so we made a taint copy before
+                // Keep sources that are coming from inside the method
+                result.addSource(source);
+            }
+
             for (TaintLocation unknownLocation : taint.getUnknownLocations()) {
                 result.addLocation(unknownLocation, false);
             }
             for (TaintLocation taintLocation : taint.getTaintedLocations()) {
                 result.addLocation(taintLocation, true);
             }
+
+            // merge removes tags so we made a taint copy before
 
             // don't add tags to safe values
             if (!result.isSafe() && taint.hasTags()) {
@@ -796,11 +901,23 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         return result;
     }
 
+    /**
+     * Mix the method arguments based on how they are processed inside the method. This means:
+     * <ol>
+     *     <li>If taint analysis derives a complex taint state of the argument when analyzing the method then propagate back the inferred taint state.</li>
+     *     <li>Then mutate arguments with themselves based on taint-config files,
+     *     for example 0+1->1: <code>java/lang/StringBuilder.append(Ljava/lang/String;)Ljava/lang/StringBuilder;:0,1#1</code></li>
+     * </ol>
+     */
     private void taintMutableArguments(TaintMethodConfig methodConfig, InvokeInstruction obj) {
         if (methodConfig != null && methodConfig.isConfigured()) {
             return;
         }
 
+        // Mutate method arguments
+        // (1) Get taint from inside the method
+        // (2) Merge the taint with other values on stack - the parameter can be mixed with other parameters of the method
+        // (3) Propagate back to stack of arguments & variables
         if (methodConfig != null && methodConfig.isParametersOutputTaintsProcessed()) {
             for (Map.Entry<Integer, Taint> entry : methodConfig.getParametersOutputTaints().entrySet()) {
                 int stackIndex = entry.getKey();
@@ -810,7 +927,11 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                 assert parameterTaint != null;
 
                 try {
+                    // Defensive copy, mergeTaintWithStack can return original object,
+                    // we don't want to mutate methodConfig itself
                     Taint taint = new Taint(parameterTaint);
+                    // If the taint is influenced by other parameters then mix the soup.
+                    // Similar to the methodConfig output taint.
                     taint = mergeTaintWithStack(taint);
 
                     Taint stackValue = getFrame().getStackValue(stackIndex);
@@ -818,8 +939,11 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                         // set back the index removed during merging
                         taint.setVariableIndex(stackValue.getVariableIndex());
                     }
+                    // removed during merging
                     taint.setRealInstanceClass(stackValue.getRealInstanceClass());
+                    // update argument on the stack
                     getFrame().setValue(getFrame().getStackLocation(stackIndex), taint);
+                    // update the variable that the argument on the stack is referencing
                     setLocalVariableTaint(taint, stackValue);
                 }
                 catch (DataflowAnalysisException ex) {
@@ -830,6 +954,8 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             return;
         }
 
+        // Simply mutate the arguments into the stack as described by indices
+        // For example: java/lang/StringBuilder.append(Ljava/lang/String;)Ljava/lang/StringBuilder;:0,1#1
         Collection<Integer> mutableStackIndices = getMutableStackIndices(obj.getSignature(cpg));
         for (Integer index : mutableStackIndices) {
             assert index >= 0 && index < getFrame().getStackDepth();
