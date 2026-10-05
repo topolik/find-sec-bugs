@@ -114,6 +114,15 @@ public class Taint {
 
     private State state;
     private static final int INVALID_INDEX = -1;
+    /**
+     * Index of the local variable the value was loaded from or stored to, used to
+     * write the taint of a mutated stack value back to that local, e.g. after
+     * {@code sb.append(tainted)}. It is not alias analysis: the value of a method
+     * call has no index even when it shares data with the receiver or an argument
+     * (map values, views), unless the call itself writes it back to a mutated local
+     * like the receiver of {@code append}, and a store replaces the index, so other
+     * locals referring to the same object are not updated.
+     */
     private int variableIndex;
     private Set<TaintLocation> taintLocations;
     private Set<TaintLocation> unknownLocations;
