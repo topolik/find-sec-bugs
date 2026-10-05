@@ -798,6 +798,9 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                 result = transferParametersTaint;
             }
 
+            // the result is a new value, not stored in any local yet
+            result.invalidateVariableIndex();
+
             result.addAllSources(taint.getSources());
 
             // merge removes tags so we made a taint copy before
