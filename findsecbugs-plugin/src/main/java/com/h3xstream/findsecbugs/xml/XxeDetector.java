@@ -17,6 +17,7 @@
  */
 package com.h3xstream.findsecbugs.xml;
 
+import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
 import com.h3xstream.findsecbugs.common.ByteCode;
 import com.h3xstream.findsecbugs.common.InterfaceUtils;
 import edu.umd.cs.findbugs.BugInstance;
@@ -28,7 +29,10 @@ import edu.umd.cs.findbugs.ba.CFGBuilderException;
 import edu.umd.cs.findbugs.ba.ClassContext;
 import edu.umd.cs.findbugs.ba.Location;
 import edu.umd.cs.findbugs.bcel.OpcodeStackDetector;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.Set;
 import org.apache.bcel.Const;
 import org.apache.bcel.classfile.JavaClass;
 import org.apache.bcel.generic.ConstantPoolGen;
@@ -72,6 +76,13 @@ public class XxeDetector extends OpcodeStackDetector {
     private static final String FEATURE_EXTERNAL_ENTITIES = "http://xml.org/sax/features/external-parameter-entities";
 
     private final BugReporter bugReporter;
+
+    /**
+     * Factory methods returning parsers that are already hardened against XXE, as comma-separated owner.method
+     * values, for example -Dfindsecbugs.xxe.securefactories=com/acme/SecureXml.newDocumentBuilderFactory
+     */
+    private final Set<String> secureFactories = new HashSet<String>(Arrays.asList(
+            FindSecBugsGlobalConfig.getInstance().loadFromSystem("findsecbugs.xxe.securefactories", "").split(",")));
 
     public XxeDetector(BugReporter bugReporter) {
         this.bugReporter = bugReporter;
@@ -130,6 +141,12 @@ public class XxeDetector extends OpcodeStackDetector {
                 if (inst instanceof INVOKEINTERFACE) { //XMLReader.setEntityResolver is called
                     INVOKEINTERFACE invoke = (INVOKEINTERFACE) inst;
                     if ("setEntityResolver".equals(invoke.getMethodName(cpg))) {
+                        return;
+                    }
+                }
+                if (inst instanceof InvokeInstruction) {
+                    InvokeInstruction invoke = (InvokeInstruction) inst;
+                    if (secureFactories.contains(invoke.getClassName(cpg).replace('.', '/') + "." + invoke.getMethodName(cpg))) {
                         return;
                     }
                 }
