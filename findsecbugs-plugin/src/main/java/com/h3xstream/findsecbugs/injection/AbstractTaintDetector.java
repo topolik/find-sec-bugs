@@ -29,7 +29,19 @@ import edu.umd.cs.findbugs.bcel.BCELUtil;
 import edu.umd.cs.findbugs.classfile.CheckedAnalysisException;
 import edu.umd.cs.findbugs.classfile.Global;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.Set;
+import org.apache.bcel.classfile.Attribute;
+import org.apache.bcel.classfile.BootstrapMethod;
+import org.apache.bcel.classfile.BootstrapMethods;
+import org.apache.bcel.classfile.Constant;
+import org.apache.bcel.classfile.ConstantCP;
+import org.apache.bcel.classfile.ConstantInvokeDynamic;
+import org.apache.bcel.classfile.ConstantMethodHandle;
+import org.apache.bcel.classfile.ConstantNameAndType;
+import org.apache.bcel.classfile.ConstantPool;
+import org.apache.bcel.classfile.JavaClass;
 import org.apache.bcel.classfile.Method;
 import org.apache.bcel.generic.ConstantPoolGen;
 import org.apache.bcel.generic.INVOKEDYNAMIC;
@@ -69,35 +81,46 @@ public abstract class AbstractTaintDetector implements Detector {
         if(!shouldAnalyzeClass(classContext)) {
             return;
         }
+        Set<Method> analyzed = new HashSet<Method>();
         for (Method method : classContext.getMethodsInCallOrder()) {
-            if (classContext.getMethodGen(method) == null) {
-                continue;
-            }
-            if (!method.isStatic()) {
-                continue;
-            }
-            try {
-                analyzeMethod(classContext, method);
-            } catch (CheckedAnalysisException e) {
-                logException(classContext, method, e);
-            } catch (RuntimeException e) {
-                logException(classContext, method, e);
+            if (method.isStatic()) {
+                analyzeMethodAndLambdas(classContext, method, analyzed);
             }
         }
         for (Method method : classContext.getMethodsInCallOrder()) {
-            if (classContext.getMethodGen(method) == null) {
-                continue;
+            if (!method.isStatic()) {
+                analyzeMethodAndLambdas(classContext, method, analyzed);
             }
-            if (method.isStatic()) {
-                continue;
+        }
+    }
+
+    /**
+     * Analyzes the lambda bodies first, so their sinks are known at the invokedynamic site
+     */
+    private void analyzeMethodAndLambdas(ClassContext classContext, Method method, Set<Method> analyzed) {
+        if (!analyzed.add(method)) {
+            return;
+        }
+        MethodGen methodGen = classContext.getMethodGen(method);
+        if (methodGen == null) {
+            return;
+        }
+        ConstantPoolGen cpg = classContext.getConstantPoolGen();
+        for (InstructionHandle handle : methodGen.getInstructionList().getInstructionHandles()) {
+            if (handle.getInstruction() instanceof INVOKEDYNAMIC) {
+                Method lambda = getLambdaImplementation(
+                        classContext.getJavaClass(), cpg, (INVOKEDYNAMIC) handle.getInstruction());
+                if (lambda != null) {
+                    analyzeMethodAndLambdas(classContext, lambda, analyzed);
+                }
             }
-            try {
-                analyzeMethod(classContext, method);
-            } catch (CheckedAnalysisException e) {
-                logException(classContext, method, e);
-            } catch (RuntimeException e) {
-                logException(classContext, method, e);
-            }
+        }
+        try {
+            analyzeMethod(classContext, method);
+        } catch (CheckedAnalysisException e) {
+            logException(classContext, method, e);
+        } catch (RuntimeException e) {
+            logException(classContext, method, e);
         }
     }
 
@@ -162,5 +185,47 @@ public abstract class AbstractTaintDetector implements Detector {
     protected void analyzeLambdaLocation(ClassContext classContext, Method method, InstructionHandle handle,
             ConstantPoolGen cpg, INVOKEDYNAMIC invoke, TaintFrame fact, ClassMethodSignature classMethodSignature)
             throws DataflowAnalysisException {
+    }
+
+    protected static Method getLambdaImplementation(JavaClass javaClass, ConstantPoolGen cpg, INVOKEDYNAMIC invoke) {
+        ConstantPool cp = cpg.getConstantPool();
+        BootstrapMethods bootstrapMethods = null;
+        for (Attribute attribute : javaClass.getAttributes()) {
+            if (attribute instanceof BootstrapMethods) {
+                bootstrapMethods = (BootstrapMethods) attribute;
+            }
+        }
+        if (bootstrapMethods == null) {
+            return null;
+        }
+        ConstantInvokeDynamic invokeDynamic = (ConstantInvokeDynamic) cp.getConstant(invoke.getIndex());
+        BootstrapMethod bootstrapMethod =
+                bootstrapMethods.getBootstrapMethods()[invokeDynamic.getBootstrapMethodAttrIndex()];
+        ConstantMethodHandle bootstrapHandle =
+                (ConstantMethodHandle) cp.getConstant(bootstrapMethod.getBootstrapMethodRef());
+        ConstantCP bootstrapReference = (ConstantCP) cp.getConstant(bootstrapHandle.getReferenceIndex());
+        int[] bootstrapArguments = bootstrapMethod.getBootstrapArguments();
+        if (!"java.lang.invoke.LambdaMetafactory".equals(bootstrapReference.getClass(cp))
+                || bootstrapArguments.length < 2) {
+            return null;
+        }
+        Constant implementation = cp.getConstant(bootstrapArguments[1]);
+        if (!(implementation instanceof ConstantMethodHandle)) {
+            return null;
+        }
+        ConstantCP implementationReference =
+                (ConstantCP) cp.getConstant(((ConstantMethodHandle) implementation).getReferenceIndex());
+        if (!javaClass.getClassName().equals(implementationReference.getClass(cp))) {
+            return null;
+        }
+        ConstantNameAndType nameAndType =
+                (ConstantNameAndType) cp.getConstant(implementationReference.getNameAndTypeIndex());
+        for (Method method : javaClass.getMethods()) {
+            if (method.getName().equals(nameAndType.getName(cp))
+                    && method.getSignature().equals(nameAndType.getSignature(cp))) {
+                return method;
+            }
+        }
+        return null;
     }
 }

@@ -82,4 +82,22 @@ public class LambdaCapturedArgumentTest extends BaseDetectorTest {
                         .build()
         );
     }
+
+    @Test
+    public void detectSqlInjectionFromParameterCapturedWithThis() throws Exception {
+        String[] files = {
+                getClassFilePath("testcode/sqli/source/LambdaCapturedParameterInstance")
+        };
+
+        EasyBugReporter reporter = spy(new SecurityReporter());
+        analyze(files, reporter);
+
+        verify(reporter).doReportBug(
+                bugDefinition()
+                        .bugType("SQL_INJECTION_JDBC")
+                        .inClass("LambdaCapturedParameterInstance")
+                        .withPriority("High")
+                        .build()
+        );
+    }
 }
