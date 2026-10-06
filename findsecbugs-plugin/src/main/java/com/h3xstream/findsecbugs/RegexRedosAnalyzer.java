@@ -61,7 +61,7 @@ public class RegexRedosAnalyzer {
 
             if (isChar(regex, i, CLOSING_CHAR)) {
                 int newLevel = level;
-                if (i + 1 < regex.length() && isChar(regex, i + 1, PLUS_CHAR)) {
+                if (i + 1 < regex.length() && isChar(regex, i + 1, PLUS_CHAR) && !isDelimitedRun(regex, i)) {
                     newLevel += 1;
                 }
 //                print(level, ">>>>");
@@ -77,6 +77,19 @@ public class RegexRedosAnalyzer {
 //        print(level, "END!");
 
         return 0;
+    }
+
+    /**
+     * A run such as '[^']*' stops only at its delimiter, so it can match a given input in one way only.
+     */
+    private boolean isDelimitedRun(String regex, int closingPosition) {
+        if (closingPosition < 3 || closingPosition + 2 >= regex.length()) {
+            return false;
+        }
+        char delimiter = regex.charAt(closingPosition - 1);
+        return regex.charAt(closingPosition) == ']' && regex.charAt(closingPosition - 2) == '^' &&
+                isChar(regex, closingPosition - 3, OPENING_CHAR) && delimiter != '\\' &&
+                regex.charAt(closingPosition + 2) == delimiter;
     }
 
     /**
