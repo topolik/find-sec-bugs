@@ -267,6 +267,7 @@ java/util/Collections.copy(Ljava/util/List;Ljava/util/List;)V:0,1#1
 java/util/Collections.disjoint(Ljava/util/Collection;Ljava/util/Collection;)Z:UNKNOWN
 java/util/Collections.emptyEnumeration()Ljava/util/Enumeration;:SAFE
 java/util/Collections.emptyIterator()Ljava/util/Iterator;:SAFE
+java/util/Collections.emptyList()Ljava/util/List;:SAFE
 java/util/Collections.emptyListIterator()Ljava/util/ListIterator;:SAFE
 java/util/Collections.emptyMap()Ljava/util/Map;:SAFE
 java/util/Collections.emptyNavigableMap()Ljava/util/NavigableMap;:SAFE
