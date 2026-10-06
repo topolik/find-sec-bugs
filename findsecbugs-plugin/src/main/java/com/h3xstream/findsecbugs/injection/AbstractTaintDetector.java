@@ -115,13 +115,17 @@ public abstract class AbstractTaintDetector implements Detector {
             Location location = i.next();
             InstructionHandle handle = location.getHandle();
             Instruction instruction = handle.getInstruction();
-            if (!(instruction instanceof InvokeInstruction) || instruction instanceof INVOKEDYNAMIC) {
+            if (!(instruction instanceof InvokeInstruction)) {
                 continue;
             }
             InvokeInstruction invoke = (InvokeInstruction) instruction;
             TaintFrame fact = dataflow.getFactAtLocation(location);
             assert fact != null;
             if (!fact.isValid()) {
+                continue;
+            }
+            if (invoke instanceof INVOKEDYNAMIC) {
+                analyzeLambdaLocation(classContext, method, handle, cpg, (INVOKEDYNAMIC) invoke, fact, classMethodSignature);
                 continue;
             }
             analyzeLocation(classContext, method, handle, cpg, invoke, fact, classMethodSignature);
@@ -151,4 +155,12 @@ public abstract class AbstractTaintDetector implements Detector {
     abstract protected void analyzeLocation(ClassContext classContext, Method method, InstructionHandle handle,
             ConstantPoolGen cpg, InvokeInstruction invoke, TaintFrame fact, ClassMethodSignature classMethodSignature)
             throws DataflowAnalysisException;
+
+    /**
+     * Called for each invokedynamic instruction, the default implementation does nothing.
+     */
+    protected void analyzeLambdaLocation(ClassContext classContext, Method method, InstructionHandle handle,
+            ConstantPoolGen cpg, INVOKEDYNAMIC invoke, TaintFrame fact, ClassMethodSignature classMethodSignature)
+            throws DataflowAnalysisException {
+    }
 }
