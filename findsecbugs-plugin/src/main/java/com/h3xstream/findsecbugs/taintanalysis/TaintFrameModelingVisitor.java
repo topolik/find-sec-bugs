@@ -595,6 +595,14 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             Taint taintCopy = taint;
             // return type is not always the instance type
             taintCopy.setRealInstanceClass(methodConfig != null && methodConfig.getOutputTaint() != null ? methodConfig.getOutputTaint().getRealInstanceClass() : null);
+            Type returnType = obj.getReturnType(cpg);
+            if (taintCopy.getRealInstanceClass() == null && returnType instanceof ObjectType
+                    && taintConfig.isClassImmutable(returnType.getSignature())) {
+                // an immutable return type cannot be mutated by any later call, copy
+                // to avoid retyping a transferred argument sharing the same instance
+                taintCopy = new Taint(taintCopy);
+                taintCopy.setRealInstanceClass((ObjectType) returnType);
+            }
 
             TaintFrame tf = getFrame();
 
@@ -868,6 +876,10 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             assert index >= 0 && index < getFrame().getStackDepth();
             try {
                 Taint stackValue = getFrame().getStackValue(index);
+                ObjectType realInstanceClass = stackValue.getRealInstanceClass();
+                if (realInstanceClass != null && taintConfig.isClassImmutable(realInstanceClass.getSignature())) {
+                    continue;
+                }
                 Taint taint = Taint.merge(stackValue, getDefaultValue());
                 if (stackValue.hasValidVariableIndex()) {
                     // set back the index removed during merging
