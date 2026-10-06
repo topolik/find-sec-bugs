@@ -27,6 +27,10 @@ import edu.umd.cs.findbugs.ba.AbstractFrameModelingVisitor;
 import edu.umd.cs.findbugs.ba.DataflowAnalysisException;
 import edu.umd.cs.findbugs.ba.InvalidBytecodeException;
 import edu.umd.cs.findbugs.ba.generic.GenericSignatureParser;
+import edu.umd.cs.findbugs.ba.type.TypeDataflow;
+import edu.umd.cs.findbugs.ba.type.TypeFrame;
+import edu.umd.cs.findbugs.classfile.CheckedAnalysisException;
+import edu.umd.cs.findbugs.classfile.Global;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
 import edu.umd.cs.findbugs.util.ClassName;
 
@@ -457,9 +461,38 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         try {
             getFrame().popValue(); // array index
             // just transfer the taint from array to value at any index
+            ObjectType elementType = getLoadedElementType();
+            if (elementType != null) {
+                // an immutable element cannot be mutated by any later call, copy
+                // to avoid retyping the array sharing the same taint
+                Taint taint = new Taint(getFrame().popValue());
+                taint.setRealInstanceClass(elementType);
+                getFrame().pushValue(taint);
+            }
         } catch (DataflowAnalysisException ex) {
             throw new InvalidBytecodeException("Not enough values on the stack", ex);
         }
+    }
+
+    /**
+     * Returns the type of the element loaded by the current AALOAD when it is immutable
+     */
+    private ObjectType getLoadedElementType() {
+        try {
+            TypeDataflow typeDataflow = Global.getAnalysisCache().getMethodAnalysis(
+                    TypeDataflow.class, methodDescriptor);
+            TypeFrame typeFrame = typeDataflow.getFactAfterLocation(getLocation());
+            if (!typeFrame.isValid()) {
+                return null;
+            }
+            Type type = typeFrame.getTopValue();
+            if (type instanceof ObjectType && taintConfig.isClassImmutable(type.getSignature())) {
+                return (ObjectType) type;
+            }
+        } catch (CheckedAnalysisException ex) {
+            // fall back to an untyped element
+        }
+        return null;
     }
 
 
