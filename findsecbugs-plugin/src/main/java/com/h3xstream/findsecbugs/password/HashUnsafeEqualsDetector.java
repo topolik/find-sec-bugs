@@ -82,6 +82,9 @@ public class HashUnsafeEqualsDetector extends BasicInjectionDetector implements 
         ALLOWED_WORDS.add("sharp");
         ALLOWED_WORDS.add("shap"); //shape
         ALLOWED_WORDS.add("cashaccount"); // cash account
+        ALLOWED_WORDS.add("hashmap"); // HashMap LinkedHashMap
+        ALLOWED_WORDS.add("hashset"); // HashSet LinkedHashSet
+        ALLOWED_WORDS.add("hashtable");
     }
 
     public HashUnsafeEqualsDetector(BugReporter bugReporter) {
