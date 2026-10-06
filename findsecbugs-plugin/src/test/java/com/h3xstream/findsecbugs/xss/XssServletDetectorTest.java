@@ -275,4 +275,21 @@ public class XssServletDetectorTest extends BaseDetectorTest {
                         .build()
         );
     }
+
+    @Test
+    public void avoidStrip() throws Exception {
+        String[] files = {
+                getClassFilePath("testcode/xss/servlets/XssServletStrip")
+        };
+
+        EasyBugReporter reporter = spy(new SecurityReporter());
+        analyze(files, reporter);
+
+        verify(reporter, never()).doReportBug(
+                bugDefinition()
+                        .bugType("XSS_SERVLET")
+                        .inClass("XssServletStrip")
+                        .build()
+        );
+    }
 }
