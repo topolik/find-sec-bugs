@@ -149,6 +149,10 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
     }
 
     public boolean isClassTaintSafe(String typeSignature) {
+        if (typeSignature != null && typeSignature.startsWith("[")) {
+            // an array can only hold instances of its element type
+            return isClassTaintSafe(typeSignature.substring(1));
+        }
         if (!isClassType(typeSignature)) {
             return false;
         }
