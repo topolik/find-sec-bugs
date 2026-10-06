@@ -67,7 +67,7 @@ public class ConstantPasswordDetector extends OpcodeStackDetector {
 
     // suspicious variable names with password or keys
     private static final String PASSWORD_NAMES
-            = ".*(pass|pwd|psw|secret|key|cipher|crypt|des|aes|mac|private|sign|cert).*";
+            = ".*(pass|pwd|psw|secret|key|cipher|crypt|des|aes|mac|private|sign(?!ature)|cert).*";
     private static final Pattern PASSWORD_PATTERN = Pattern.compile(PASSWORD_NAMES, Pattern.CASE_INSENSITIVE);
 
     private final Map<String, Collection<Integer>> sinkMethods = new HashMap<String, Collection<Integer>>();
