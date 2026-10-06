@@ -43,6 +43,7 @@ public class ReDosDetectorTest extends BaseDetectorTest {
         analyzer.analyseRegexString("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*");
         analyzer.analyseRegexString("[A-Za-z_][A-Za-z0-9_]*(?:[./][A-Za-z_][A-Za-z0-9_]*)*");
         analyzer.analyseRegexString("^[^/]*(?:/([0-9]+))?/([0-9]+)$");
+        analyzer.analyseRegexString("[\\w!#$%&'*+/=?^_`{|}~-]+(?:\\.[\\w!#$%&'*+/=?^_`{|}~-]+)*@(?:\\w(?:[\\w-]*\\w)?\\.)+(\\w(?:[\\w-]*\\w))");
 
         assertFalse(analyzer.isVulnerable(),"False positive detected!");
     }
@@ -61,8 +62,8 @@ public class ReDosDetectorTest extends BaseDetectorTest {
         assertTrue(analyzer.isVulnerable(),"(\\.[a-z.]+)+ should be detect as REDOS");
 
         analyzer = new RegexRedosAnalyzer();
-        analyzer.analyseRegexString("(?:,\\w[a-z]+)*");
-        assertTrue(analyzer.isVulnerable(),"(?:,\\w[a-z]+)* should be detect as REDOS");
+        analyzer.analyseRegexString("(?:,\\s[a-z]+)*");
+        assertTrue(analyzer.isVulnerable(),"(?:,\\s[a-z]+)* should be detect as REDOS");
 
         analyzer = new RegexRedosAnalyzer();
         analyzer.analyseRegexString("((ab)+)+");
@@ -82,6 +83,10 @@ public class ReDosDetectorTest extends BaseDetectorTest {
         analyzer = new RegexRedosAnalyzer();
         analyzer.analyseRegexString("((a)?)+");
         assertTrue(analyzer.isVulnerable(),"((a)?)+ should be detect as REDOS");
+
+        analyzer = new RegexRedosAnalyzer();
+        analyzer.analyseRegexString("(?:\\w(?:[\\w.]*\\w)?\\.)+");
+        assertTrue(analyzer.isVulnerable(),"(?:\\w(?:[\\w.]*\\w)?\\.)+ should be detect as REDOS");
     }
 
     /**

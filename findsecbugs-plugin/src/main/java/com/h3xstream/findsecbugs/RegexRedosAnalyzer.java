@@ -67,7 +67,7 @@ public class RegexRedosAnalyzer {
             if (isChar(regex, i, CLOSING_CHAR)) {
                 int newLevel = level;
                 if (i + 1 < regex.length() && isChar(regex, i + 1, PLUS_CHAR) && !isOutermostOptional(regex, i, level) &&
-                        !isDelimitedRun(regex, i) && !isSeparatedGroup(regex, i, level)) {
+                        !isDelimitedRun(regex, i) && !isSeparatedGroup(regex, i, level) && !isTerminatedGroup(regex, i, level)) {
                     newLevel += 1;
                 }
 //                print(level, ">>>>");
@@ -152,6 +152,75 @@ public class RegexRedosAnalyzer {
         return true;
     }
 
+    /**
+     * A group such as (?:\w(?:[\w-]*\w)?\.)+ ends each repetition with a terminator that nothing else in the group
+     * matches, so it can match a given input in one way only. Inside another repetition it still adds a nesting level.
+     */
+    private boolean isTerminatedGroup(String regex, int closingPosition, int level) {
+        if (level != 0 || regex.charAt(closingPosition) != ')') {
+            return false;
+        }
+        int position = findOpeningParenthesis(regex, closingPosition);
+        if (position < 0) {
+            return false;
+        }
+        position++;
+        if (regex.startsWith("?:", position)) {
+            position += 2;
+        } else if (position < closingPosition && regex.charAt(position) == '?') {
+            return false;
+        }
+        boolean[] body = new boolean[128];
+        boolean[] terminator = null;
+        int depth = 0;
+        while (position < closingPosition) {
+            char c = regex.charAt(position);
+            if (c == '(') {
+                if (regex.charAt(position + 1) == '?' && !regex.startsWith("?:", position + 1)) {
+                    return false;
+                }
+                depth++;
+                position += regex.startsWith("?:", position + 1) ? 3 : 1;
+            } else if (c == ')') {
+                depth--;
+                position++;
+            } else if (c == '|') {
+                return false;
+            } else if (isChar(regex, position, PLUS_CHAR)) {
+                position++;
+            } else {
+                boolean[] charSet = new boolean[128];
+                position = parseCharSet(regex, position, charSet);
+                if (position < 0) {
+                    return false;
+                }
+                if (terminator != null) {
+                    addAll(body, terminator);
+                }
+                terminator = charSet;
+                if (depth != 0 || (position < closingPosition && isChar(regex, position, PLUS_CHAR))) {
+                    addAll(body, charSet);
+                    terminator = null;
+                }
+            }
+        }
+        if (terminator == null || regex.charAt(closingPosition - 1) == ')') {
+            return false;
+        }
+        for (int c = 0; c < 128; c++) {
+            if (body[c] && terminator[c]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void addAll(boolean[] charSet, boolean[] other) {
+        for (int c = 0; c < 128; c++) {
+            charSet[c] |= other[c];
+        }
+    }
+
     private int findOpeningParenthesis(String regex, int closingPosition) {
         Deque<Integer> openings = new ArrayDeque<Integer>();
         boolean inClass = false;
@@ -194,6 +263,10 @@ public class RegexRedosAnalyzer {
             if (escaped) {
                 position++;
             }
+            if (escaped && position < regex.length() && addShorthand(regex.charAt(position), charSet)) {
+                position++;
+                continue;
+            }
             if (position >= regex.length() || (escaped && Character.isLetterOrDigit(regex.charAt(position))) ||
                     regex.charAt(position) >= 128 || (!escaped && regex.charAt(position) == '[')) {
                 return -1;
@@ -221,11 +294,34 @@ public class RegexRedosAnalyzer {
             return -1;
         }
         char c = regex.charAt(position);
+        if (regex.charAt(position - 1) == '\\' && addShorthand(c, charSet)) {
+            return position + 1;
+        }
         if (c >= 128 || (regex.charAt(position - 1) == '\\' && Character.isLetterOrDigit(c))) {
             return -1;
         }
         charSet[c] = true;
         return position + 1;
+    }
+
+    /**
+     * Adds the ASCII members of \d or \w, which match no other characters unless UNICODE_CHARACTER_CLASS is set.
+     */
+    private boolean addShorthand(char c, boolean[] charSet) {
+        if (c != 'd' && c != 'w') {
+            return false;
+        }
+        for (char member = '0'; member <= '9'; member++) {
+            charSet[member] = true;
+        }
+        if (c == 'w') {
+            for (char member = 'a'; member <= 'z'; member++) {
+                charSet[member] = true;
+                charSet[Character.toUpperCase(member)] = true;
+            }
+            charSet['_'] = true;
+        }
+        return true;
     }
 
     /**
