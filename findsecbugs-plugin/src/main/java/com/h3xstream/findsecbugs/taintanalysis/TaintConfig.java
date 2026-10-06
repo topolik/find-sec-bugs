@@ -23,16 +23,20 @@ import edu.umd.cs.findbugs.ba.DataflowAnalysisException;
 import edu.umd.cs.findbugs.ba.SignatureParser;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
 import org.apache.bcel.Repository;
+import org.apache.bcel.classfile.AnnotationEntry;
 import org.apache.bcel.classfile.JavaClass;
+import org.apache.bcel.classfile.Method;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Map of taint summaries for all known methods and classes
@@ -60,6 +64,14 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
     private final Map<String, Taint> staticFieldsTaint = new HashMap<String, Taint>();
 
     /**
+     * Annotation type signatures (e.g. Lcom/liferay/portal/kernel/bean/AutoEscape;)
+     * whose unconfigured instance methods return the receiver's taint, tags
+     * included. Configured with a line {@code @com/liferay/portal/kernel/bean/AutoEscape:RECEIVER}.
+     */
+    private final Set<String> receiverTransferAnnotations = new HashSet<String>();
+    private final Map<String, Boolean> receiverTransferMethodCache = new ConcurrentHashMap<String, Boolean>();
+
+    /**
      * Dumps all the summaries for debugging
      * 
      * @param output stream where to output the summaries
@@ -84,6 +96,15 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
         new TaintConfigLoader().load(input, new TaintConfigLoader.TaintConfigReceiver() {
             @Override
             public void receiveTaintConfig(String typeSignature, String config) throws IOException {
+                if (typeSignature.startsWith("@")) {
+                    if (!"RECEIVER".equals(config.trim())) {
+                        throw new IllegalArgumentException("Invalid annotation config " + typeSignature + ":" + config);
+                    }
+                    receiverTransferAnnotations.add("L" + typeSignature.substring(1) + ";");
+                    receiverTransferMethodCache.clear();
+                    return;
+                }
+
                 if (TaintMethodConfig.accepts(typeSignature, config)) {
                     if (checkRewrite && containsKey(typeSignature)) {
                         throw new IllegalStateException("Config for " + typeSignature + " already loaded");
@@ -293,6 +314,65 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
         }
 
         return null;
+    }
+
+    /**
+     * Whether the method, declared in the class or any of its supertypes, carries
+     * one of the annotations configured with {@code @annotation/Type:RECEIVER}
+     *
+     * @param className slashed name of the invoked class
+     * @param methodId method name with signature, e.g. .getName()Ljava/lang/String;
+     */
+    public boolean isReceiverTransferMethod(String className, String methodId) {
+        if (receiverTransferAnnotations.isEmpty() || className.endsWith("]")) {
+            return false;
+        }
+
+        String key = className.concat(methodId);
+        Boolean result = receiverTransferMethodCache.get(key);
+        if (result == null) {
+            result = hasReceiverTransferAnnotation(className, methodId);
+            receiverTransferMethodCache.put(key, result);
+        }
+        return result;
+    }
+
+    private boolean hasReceiverTransferAnnotation(String className, String methodId) {
+        int signatureIndex = methodId.indexOf('(');
+        String methodName = methodId.substring(1, signatureIndex);
+        String signature = methodId.substring(signatureIndex);
+        try {
+            JavaClass javaClass = Repository.lookupClass(className);
+            if (hasReceiverTransferAnnotation(javaClass, methodName, signature)) {
+                return true;
+            }
+            for (String parentClassName : BCELUtil.getParentClassNames(javaClass)) {
+                try {
+                    if (hasReceiverTransferAnnotation(Repository.lookupClass(parentClassName), methodName, signature)) {
+                        return true;
+                    }
+                } catch (ClassNotFoundException ex) {
+                    AnalysisContext.reportMissingClass(ex);
+                }
+            }
+        } catch (ClassNotFoundException ex) {
+            AnalysisContext.reportMissingClass(ex);
+        }
+        return false;
+    }
+
+    private boolean hasReceiverTransferAnnotation(JavaClass javaClass, String methodName, String signature) {
+        for (Method method : javaClass.getMethods()) {
+            if (method.isStatic() || !method.getName().equals(methodName) || !method.getSignature().equals(signature)) {
+                continue;
+            }
+            for (AnnotationEntry annotationEntry : method.getAnnotationEntries()) {
+                if (receiverTransferAnnotations.contains(annotationEntry.getAnnotationType())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private TaintMethodConfig getTaintMethodConfigWithArgumentsAndLocation(TaintFrame frame, MethodDescriptor methodDescriptor, String className, String methodId) {

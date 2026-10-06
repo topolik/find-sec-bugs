@@ -691,6 +691,20 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         if (isAnnotationElement(obj, className)) {
             return TaintMethodConfig.SAFE_CONFIG;
         }
+        if (!(obj instanceof INVOKESTATIC) && !(obj instanceof INVOKEDYNAMIC)
+                && taintConfig.isReceiverTransferMethod(className, methodId)) {
+            // e.g. @AutoEscape getters return the receiver's taint, tags included
+            try {
+                Taint receiverTransfer = new Taint(Taint.State.UNKNOWN);
+                receiverTransfer.addParameter(getFrame().getNumArgumentsIncludingObjectInstance(obj, cpg) - 1);
+                TaintMethodConfig receiverConfig = new TaintMethodConfig(false);
+                receiverConfig.setOuputTaint(receiverTransfer);
+                receiverConfig.setTypeSignature(className + methodId);
+                return receiverConfig;
+            } catch (DataflowAnalysisException ex) {
+                throw new InvalidBytecodeException(ex.getMessage(), ex);
+            }
+        }
         if (config != null) {
             return config;
         }
