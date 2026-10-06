@@ -17,6 +17,7 @@
  */
 package com.h3xstream.findsecbugs.xml;
 
+import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
 import com.h3xstream.findsecbugs.common.ByteCode;
 import static com.h3xstream.findsecbugs.common.matcher.InstructionDSL.invokeInstruction;
 import edu.umd.cs.findbugs.BugInstance;
@@ -28,7 +29,10 @@ import edu.umd.cs.findbugs.ba.CFGBuilderException;
 import edu.umd.cs.findbugs.ba.ClassContext;
 import edu.umd.cs.findbugs.ba.Location;
 import edu.umd.cs.findbugs.bcel.OpcodeStackDetector;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.Set;
 import org.apache.bcel.Const;
 import org.apache.bcel.generic.ConstantPoolGen;
 import org.apache.bcel.generic.ICONST;
@@ -50,6 +54,12 @@ public class XmlStreamReaderDetector extends OpcodeStackDetector {
     private static final String PROPERTY_SUPPORT_DTD = "javax.xml.stream.supportDTD";
     private static final String PROPERTY_IS_SUPPORTING_EXTERNAL_ENTITIES = "javax.xml.stream.isSupportingExternalEntities";
     private final BugReporter bugReporter;
+
+    /**
+     * Factory methods returning parsers that are already hardened against XXE, see XxeDetector
+     */
+    private final Set<String> secureFactories = new HashSet<String>(Arrays.asList(
+            FindSecBugsGlobalConfig.getInstance().loadFromSystem("findsecbugs.xxe.securefactories", "").split(",")));
 
     public XmlStreamReaderDetector(BugReporter bugReporter) {
         this.bugReporter = bugReporter;
@@ -79,6 +89,13 @@ public class XmlStreamReaderDetector extends OpcodeStackDetector {
             for (Iterator<Location> i = cfg.locationIterator(); i.hasNext();) {
                 Location location = i.next();
                 Instruction inst = location.getHandle().getInstruction();
+
+                if (inst instanceof InvokeInstruction) {
+                    InvokeInstruction invoke = (InvokeInstruction) inst;
+                    if (secureFactories.contains(invoke.getClassName(cpg).replace('.', '/') + "." + invoke.getMethodName(cpg))) {
+                        return;
+                    }
+                }
 
                 //DTD disallow
                 //XMLInputFactory.setProperty
