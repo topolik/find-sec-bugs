@@ -66,8 +66,8 @@ public class RegexRedosAnalyzer {
 
             if (isChar(regex, i, CLOSING_CHAR)) {
                 int newLevel = level;
-                if (i + 1 < regex.length() && isChar(regex, i + 1, PLUS_CHAR) && !isDelimitedRun(regex, i) &&
-                        !isSeparatedGroup(regex, i, level)) {
+                if (i + 1 < regex.length() && isChar(regex, i + 1, PLUS_CHAR) && !isOutermostOptional(regex, i, level) &&
+                        !isDelimitedRun(regex, i) && !isSeparatedGroup(regex, i, level)) {
                     newLevel += 1;
                 }
 //                print(level, ">>>>");
@@ -83,6 +83,13 @@ public class RegexRedosAnalyzer {
 //        print(level, "END!");
 
         return 0;
+    }
+
+    /**
+     * An optional group such as (/[0-9]+)? matches at most once, so it only adds a nesting level inside a repetition.
+     */
+    private boolean isOutermostOptional(String regex, int closingPosition, int level) {
+        return level == 0 && regex.charAt(closingPosition + 1) == '?';
     }
 
     /**
