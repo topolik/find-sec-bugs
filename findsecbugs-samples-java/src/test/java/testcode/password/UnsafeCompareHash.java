@@ -62,6 +62,25 @@ public abstract class UnsafeCompareHash {
         return false;
     }
 
+    /**
+     * Collection types such as HashMap are not hash values.
+     */
+    public boolean fpKeyword2(String info) {
+        java.util.LinkedHashMap<String, String> linkedHashMap = new java.util.LinkedHashMap<>();
+
+        linkedHashMap.put(info, info);
+
+        for (java.util.Map.Entry<String, String> entry : linkedHashMap.entrySet()) {
+            String key = entry.getKey();
+
+            if (key.equals("template_")) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public abstract String getHash(String username);
     public abstract byte[] getHashBytes(String username);
     public abstract byte[] getSharedProperty(String username);

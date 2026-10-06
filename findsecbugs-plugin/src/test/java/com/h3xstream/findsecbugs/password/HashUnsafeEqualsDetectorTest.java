@@ -49,12 +49,14 @@ public class HashUnsafeEqualsDetectorTest extends BaseDetectorTest {
             );
         }
 
-        verify(reporter,never()).doReportBug(
-                bugDefinition()
-                        .bugType("UNSAFE_HASH_EQUALS")
-                        .inClass("UnsafeCompareHash").inMethod("fpKeyword1")
-                        .build()
-        );
+        for (String method : Arrays.asList("fpKeyword1", "fpKeyword2")) {
+            verify(reporter,never()).doReportBug(
+                    bugDefinition()
+                            .bugType("UNSAFE_HASH_EQUALS")
+                            .inClass("UnsafeCompareHash").inMethod(method)
+                            .build()
+            );
+        }
         verify(reporter, times(4)).doReportBug(bugDefinition().bugType("UNSAFE_HASH_EQUALS").build());
     }
 }
