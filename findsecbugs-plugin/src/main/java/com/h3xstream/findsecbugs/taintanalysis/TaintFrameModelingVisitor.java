@@ -39,6 +39,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.apache.bcel.Const;
+import org.apache.bcel.Repository;
 import org.apache.bcel.generic.*;
 
 /**
@@ -688,6 +689,9 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         if (taintConfig.isClassTaintSafe(returnType)) {
             return TaintMethodConfig.SAFE_CONFIG;
         }
+        if (isAnnotationElement(obj, className)) {
+            return TaintMethodConfig.SAFE_CONFIG;
+        }
         if (config != null) {
             return config;
         }
@@ -704,6 +708,20 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             }
         }
         return null;
+    }
+
+    /**
+     * Annotation element values are compile-time constants
+     */
+    private boolean isAnnotationElement(InvokeInstruction obj, String className) {
+        if (!(obj instanceof INVOKEINTERFACE) || obj.getArgumentTypes(cpg).length != 0) {
+            return false;
+        }
+        try {
+            return Repository.lookupClass(className).isAnnotation();
+        } catch (ClassNotFoundException ex) {
+            return false;
+        }
     }
 
     private TaintMethodConfig getConfigWithReplaceTags(TaintMethodConfig config, String className, String methodName) {
