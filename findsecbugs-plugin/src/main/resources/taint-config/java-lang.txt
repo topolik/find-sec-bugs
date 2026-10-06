@@ -202,7 +202,7 @@ java/lang/CharSequence.subSequence(II)Ljava/lang/CharSequence;:2
 
 
 java/lang/Boolean.toString()Ljava/lang/String;:SAFE
-java/lang/Boolean.toString(B)Ljava/lang/String;:SAFE
+java/lang/Boolean.toString(Z)Ljava/lang/String;:SAFE
 java/lang/Character.getName(I)Ljava/lang/String;:0
 java/lang/Character.toString()Ljava/lang/String;:0
 java/lang/Character.toString(C)Ljava/lang/String;:0

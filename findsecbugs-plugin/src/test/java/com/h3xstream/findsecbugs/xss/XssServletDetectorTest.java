@@ -258,4 +258,21 @@ public class XssServletDetectorTest extends BaseDetectorTest {
 
         verify(reporter, times(4)).doReportBug(bugDefinition().bugType("XSS_SERVLET").build());
     }
+
+    @Test
+    public void avoidBooleanToString() throws Exception {
+        String[] files = {
+                getClassFilePath("testcode/xss/servlets/XssServletBooleanToString")
+        };
+
+        EasyBugReporter reporter = spy(new SecurityReporter());
+        analyze(files, reporter);
+
+        verify(reporter, never()).doReportBug(
+                bugDefinition()
+                        .bugType("XSS_SERVLET")
+                        .inClass("XssServletBooleanToString")
+                        .build()
+        );
+    }
 }
