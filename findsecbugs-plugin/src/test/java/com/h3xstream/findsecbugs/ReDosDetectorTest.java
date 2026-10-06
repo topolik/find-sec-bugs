@@ -38,8 +38,17 @@ public class ReDosDetectorTest extends BaseDetectorTest {
         analyzer.analyseRegexString("");
         analyzer.analyseRegexString("[a-zA-Z]+[0-9]*");
         analyzer.analyseRegexString("(id-[0-9]+)-([0-9A-F]*)");
+        analyzer.analyseRegexString("(\\w+)\\s+in\\s+\\(('[^']*'(?:\\s*,\\s*'[^']*')*)\\)");
+        analyzer.analyseRegexString("(<[^>]*>)+");
 
         assertFalse(analyzer.isVulnerable(),"False positive detected!");
+    }
+
+    @Test
+    public void analyseUndelimitedRunPattern() {
+        RegexRedosAnalyzer analyzer = new RegexRedosAnalyzer();
+        analyzer.analyseRegexString("([^']*,)+");
+        assertTrue(analyzer.isVulnerable(),"([^']*,)+ should be detect as REDOS");
     }
 
     @Test
