@@ -41,4 +41,9 @@ public class HardCodeSample {
         Vault v = new Vault();
         v.secretKey(pass);
     }
+
+    public void falsePositive5() {
+        Vault v = new Vault();
+        v.setPassword("");
+    }
 }
