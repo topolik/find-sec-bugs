@@ -831,7 +831,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         Taint result = taint;
         if (taint.isUnknown() && taint.hasParameters()) {
             // taint consisting of merged parameters only
-            Taint transferParametersTaint = mergeTransferParameters(taint.getParameters());
+            Taint transferParametersTaint = mergeTransferParameters(taint);
             assert transferParametersTaint != null;
 
             if (taint.getNonParametricState() != Taint.State.INVALID) {
@@ -928,16 +928,24 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         }
     }
 
-    private Taint mergeTransferParameters(Collection<Integer> transferParameters) {
-        assert transferParameters != null && !transferParameters.isEmpty();
+    private Taint mergeTransferParameters(Taint transferTaint) {
+        assert transferTaint != null && transferTaint.hasParameters();
         Taint taint = null;
         Taint safeTaint = null;
-        for (Integer transferParameter : transferParameters) {
+        for (Integer transferParameter : transferTaint.getParameters()) {
             try {
                 Taint value = getFrame().getStackValue(transferParameter);
                 if (value.isSafe()) {
                     safeTaint = Taint.merge(safeTaint, value);;
                 } else {
+                    // tags the method body applies to this argument on all paths
+                    Set<TaintTag> parameterTags = transferTaint.getParameterTags(transferParameter);
+                    if (!parameterTags.isEmpty()) {
+                        value = new Taint(value);
+                        for (TaintTag tag : parameterTags) {
+                            value.addTag(tag);
+                        }
+                    }
                     taint = Taint.merge(taint, value);
                 }
             } catch (DataflowAnalysisException ex) {
