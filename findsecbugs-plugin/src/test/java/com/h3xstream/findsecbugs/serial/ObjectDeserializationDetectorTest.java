@@ -160,6 +160,22 @@ public class ObjectDeserializationDetectorTest extends BaseDetectorTest {
     }
 
     @Test
+    public void avoidReadExternalFalsePositive() throws Exception {
+        String[] files = {
+                getClassFilePath("testcode/serial/ObjectDeserializationFalsePositive3")
+        };
+
+        EasyBugReporter reporter = spy(new SecurityReporter());
+        analyze(files, reporter);
+
+        verify(reporter,never()).doReportBug(
+                bugDefinition()
+                        .bugType("OBJECT_DESERIALIZATION")
+                        .build()
+        );
+    }
+
+    @Test
     public void avoidReadObjectFalsePositiveInKotlin() throws Exception {
         //Locate test code
         String[] files = {
