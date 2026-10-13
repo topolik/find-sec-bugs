@@ -19,6 +19,7 @@ package com.h3xstream.findsecbugs.injection.sql;
 
 import com.h3xstream.findbugs.test.BaseDetectorTest;
 import com.h3xstream.findbugs.test.EasyBugReporter;
+import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
 import org.testng.annotations.Test;
 
 import static org.mockito.Mockito.never;
@@ -34,6 +35,9 @@ public class StatementEnquoteMethodsTest extends BaseDetectorTest {
 
     @Test
     public void detectSafeEnquoteLiteral() throws Exception {
+        // Enable the Java 9+ invokedynamic string concatenation workaround
+        FindSecBugsGlobalConfig.getInstance().setWorkaroundVisitInvokeDynamic(true);
+
         // Locate test code
         String[] files = {
                 getClassFilePath("testcode/sqli/StatementEnquoteMethods")
@@ -55,6 +59,9 @@ public class StatementEnquoteMethodsTest extends BaseDetectorTest {
 
     @Test
     public void detectSafeEnquoteIdentifier() throws Exception {
+        // Enable the Java 9+ invokedynamic string concatenation workaround
+        FindSecBugsGlobalConfig.getInstance().setWorkaroundVisitInvokeDynamic(true);
+
         // Locate test code
         String[] files = {
                 getClassFilePath("testcode/sqli/StatementEnquoteMethods")
@@ -84,6 +91,9 @@ public class StatementEnquoteMethodsTest extends BaseDetectorTest {
 
     @Test
     public void detectSafeEnquoteNCharLiteral() throws Exception {
+        // Enable the Java 9+ invokedynamic string concatenation workaround
+        FindSecBugsGlobalConfig.getInstance().setWorkaroundVisitInvokeDynamic(true);
+
         // Locate test code
         String[] files = {
                 getClassFilePath("testcode/sqli/StatementEnquoteMethods")
@@ -105,6 +115,9 @@ public class StatementEnquoteMethodsTest extends BaseDetectorTest {
 
     @Test
     public void detectSafeMultipleEnquoteMethods() throws Exception {
+        // Enable the Java 9+ invokedynamic string concatenation workaround
+        FindSecBugsGlobalConfig.getInstance().setWorkaroundVisitInvokeDynamic(true);
+
         // Locate test code
         String[] files = {
                 getClassFilePath("testcode/sqli/StatementEnquoteMethods")
@@ -124,10 +137,27 @@ public class StatementEnquoteMethodsTest extends BaseDetectorTest {
         );
     }
 
-    // Note: The sample code includes unsafe methods for documentation purposes,
-    // but they are not tested here because:
-    // 1. The primary goal of Issue #721 is to verify enquote methods do NOT produce false-positives
-    // 2. SQL injection detection for unsafe patterns is already covered by JdbcInjectionSourceTest
-    // 3. The current project state has existing JDBC tests failing (likely due to Java version
-    //    or string concatenation implementation differences), which is outside the scope of this fix
+    @Test
+    public void detectUnsafeDirectConcatenation() throws Exception {
+        // Enable the Java 9+ invokedynamic string concatenation workaround
+        FindSecBugsGlobalConfig.getInstance().setWorkaroundVisitInvokeDynamic(true);
+
+        // Locate test code
+        String[] files = {
+                getClassFilePath("testcode/sqli/StatementEnquoteMethods")
+        };
+
+        // Run the analysis
+        EasyBugReporter reporter = spy(new SecurityReporter());
+        analyze(files, reporter);
+
+        // Direct concatenation of unsanitized input should still be reported
+        verify(reporter, times(1)).doReportBug(
+                bugDefinition()
+                        .bugType("SQL_INJECTION_JDBC")
+                        .inClass("StatementEnquoteMethods")
+                        .inMethod("unsafeDirectConcatenation")
+                        .build()
+        );
+    }
 }
