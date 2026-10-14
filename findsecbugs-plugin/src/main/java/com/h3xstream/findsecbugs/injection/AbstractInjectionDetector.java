@@ -41,6 +41,8 @@ import org.apache.bcel.Repository;
 import org.apache.bcel.classfile.JavaClass;
 import org.apache.bcel.classfile.Method;
 import org.apache.bcel.generic.ConstantPoolGen;
+import org.apache.bcel.generic.INVOKEDYNAMIC;
+import org.apache.bcel.generic.INVOKESTATIC;
 import org.apache.bcel.generic.InstructionHandle;
 import org.apache.bcel.generic.InvokeInstruction;
 
@@ -246,6 +248,10 @@ public abstract class AbstractInjectionDetector extends AbstractTaintDetector {
     }
 
     private static String getInstanceClassName(ConstantPoolGen cpg, InvokeInstruction invoke, TaintFrame frame) {
+        if (invoke instanceof INVOKESTATIC || invoke instanceof INVOKEDYNAMIC) {
+            // there is no instance, the first argument is not the receiver
+            return BCELUtil.getSlashedClassName(cpg, invoke);
+        }
         try {
             int instanceIndex = BCELUtil.getNumArgumentsIncludingObjectInstance(invoke, cpg) - 1;
             if (instanceIndex != -1) {

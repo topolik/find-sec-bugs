@@ -740,6 +740,10 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
     }
 
     private String getInstanceClassName(InvokeInstruction invoke) {
+        if (invoke instanceof INVOKESTATIC || invoke instanceof INVOKEDYNAMIC) {
+            // there is no instance, the first argument is not the receiver
+            return BCELUtil.getSlashedClassName(cpg, invoke);
+        }
         try {
             int instanceIndex = getFrame().getNumArgumentsIncludingObjectInstance(invoke, cpg) - 1;
             if (instanceIndex != -1) {
