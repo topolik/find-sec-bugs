@@ -85,6 +85,30 @@ public class TaintAnalysisTaintedByAnnotationTest extends BaseDetectorTest {
     }
 
     @Test
+    public void testInstanceAndStaticMethodParameters() throws Exception {
+        //Locate test code
+        String[] files = {
+                getClassFilePath("testcode/taint/ParameterSlotTaintedByAnnotationEndpoint")
+        };
+
+        //Run the analysis
+        EasyBugReporter reporter = spy(new SecurityReporter());
+        analyze(files, reporter);
+
+        //Assertions
+        for (String kind : new String[] {"instance", "static"}) {
+            verify(reporter).doReportBug(
+                    bugDefinition().bugType("SQL_INJECTION_HIBERNATE").inMethod(kind + "TaintedFirst").withPriority("High").build());
+
+            verify(reporter).doReportBug(
+                    bugDefinition().bugType("SQL_INJECTION_HIBERNATE").inMethod(kind + "UntaintedSecond").withPriority("Medium").build());
+
+            verify(reporter, never()).doReportBug(
+                    bugDefinition().bugType("SQL_INJECTION_HIBERNATE").inMethod(kind + "UntaintedSecond").withPriority("High").build());
+        }
+    }
+
+    @Test
     public void testVariousTaintedAnnotations() throws Exception {
         //Locate test code
         String[] files = {

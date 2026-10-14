@@ -111,7 +111,8 @@ public class TaintAnalysis extends FrameDataflowAnalysis<Taint, TaintFrame> {
             if (i < numLocals) {
                 if (i < parameterStackSize) {
                     int stackOffset = parameterStackSize - i - 1;
-                    if (isTaintedByAnnotation(i - 1)) {
+                    // slot 0 holds this in instance methods
+                    if (isTaintedByAnnotation(methodDescriptor.isStatic() ? i : i - 1)) {
                         value = new Taint(Taint.State.TAINTED);
                         // this would add line number for the first instruction in the method
                         //value.addLocation(new TaintLocation(methodDescriptor, 0,""), true);
