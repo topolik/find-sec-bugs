@@ -73,6 +73,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         "portlet.txt",
         "scala.txt",
         "sonarqube.txt",
+        "spring.txt",
         "struts2-taint.txt",
         "wicket.txt",
     };
