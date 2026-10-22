@@ -649,7 +649,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             }
 
             Taint instanceTaint = null;
-            if (!(obj instanceof INVOKESTATIC)) {
+            if (!(obj instanceof INVOKESTATIC) && !(obj instanceof INVOKEDYNAMIC)) {
                 instanceTaint = tf.getInstance(obj, cpg);
             }
 
