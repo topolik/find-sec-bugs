@@ -84,20 +84,23 @@ public abstract class AbstractTaintDetector implements Detector {
         Set<Method> analyzed = new HashSet<Method>();
         for (Method method : classContext.getMethodsInCallOrder()) {
             if (method.isStatic()) {
-                analyzeMethodAndLambdas(classContext, method, analyzed);
+                analyzeMethodAndLambdas(classContext, method, analyzed, false);
             }
         }
         for (Method method : classContext.getMethodsInCallOrder()) {
             if (!method.isStatic()) {
-                analyzeMethodAndLambdas(classContext, method, analyzed);
+                analyzeMethodAndLambdas(classContext, method, analyzed, false);
             }
         }
     }
 
     /**
-     * Analyzes the lambda bodies first, so their sinks are known at the invokedynamic site
+     * Analyzes the lambda bodies first, so their sinks are known at the invokedynamic sites. A lambda
+     * body is pulled ahead of the call order, so its same-class callees are analyzed before it too.
+     * Other methods keep the call order, the static field taint relies on callers coming first.
      */
-    private void analyzeMethodAndLambdas(ClassContext classContext, Method method, Set<Method> analyzed) {
+    private void analyzeMethodAndLambdas(ClassContext classContext, Method method, Set<Method> analyzed,
+                                         boolean lambda) {
         if (!analyzed.add(method)) {
             return;
         }
@@ -105,14 +108,18 @@ public abstract class AbstractTaintDetector implements Detector {
         if (methodGen == null) {
             return;
         }
+        JavaClass javaClass = classContext.getJavaClass();
         ConstantPoolGen cpg = classContext.getConstantPoolGen();
         for (InstructionHandle handle : methodGen.getInstructionList().getInstructionHandles()) {
-            if (handle.getInstruction() instanceof INVOKEDYNAMIC) {
-                Method lambda = getLambdaImplementation(
-                        classContext.getJavaClass(), cpg, (INVOKEDYNAMIC) handle.getInstruction());
-                if (lambda != null) {
-                    analyzeMethodAndLambdas(classContext, lambda, analyzed);
-                }
+            Instruction instruction = handle.getInstruction();
+            Method callee = null;
+            if (instruction instanceof INVOKEDYNAMIC) {
+                callee = getLambdaImplementation(javaClass, cpg, (INVOKEDYNAMIC) instruction);
+            } else if (lambda && (instruction instanceof InvokeInstruction)) {
+                callee = getSameClassMethod(javaClass, cpg, (InvokeInstruction) instruction);
+            }
+            if (callee != null) {
+                analyzeMethodAndLambdas(classContext, callee, analyzed, true);
             }
         }
         try {
@@ -122,6 +129,22 @@ public abstract class AbstractTaintDetector implements Detector {
         } catch (RuntimeException e) {
             logException(classContext, method, e);
         }
+    }
+
+    private static Method getSameClassMethod(JavaClass javaClass, ConstantPoolGen cpg, InvokeInstruction invoke) {
+        if (!javaClass.getClassName().equals(invoke.getReferenceType(cpg).toString())) {
+            return null;
+        }
+        return findMethod(javaClass, invoke.getMethodName(cpg), invoke.getSignature(cpg));
+    }
+
+    private static Method findMethod(JavaClass javaClass, String name, String signature) {
+        for (Method method : javaClass.getMethods()) {
+            if (method.getName().equals(name) && method.getSignature().equals(signature)) {
+                return method;
+            }
+        }
+        return null;
     }
 
     @Override
@@ -220,12 +243,6 @@ public abstract class AbstractTaintDetector implements Detector {
         }
         ConstantNameAndType nameAndType =
                 (ConstantNameAndType) cp.getConstant(implementationReference.getNameAndTypeIndex());
-        for (Method method : javaClass.getMethods()) {
-            if (method.getName().equals(nameAndType.getName(cp))
-                    && method.getSignature().equals(nameAndType.getSignature(cp))) {
-                return method;
-            }
-        }
-        return null;
+        return findMethod(javaClass, nameAndType.getName(cp), nameAndType.getSignature(cp));
     }
 }
