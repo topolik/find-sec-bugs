@@ -41,6 +41,8 @@ import java.io.Writer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -83,6 +85,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         "apache-commons.txt",
         "other.txt"
     };
+    private static TaintDataflowEngine instance;
     private final TaintConfig taintConfig = new TaintConfig();
     @SuppressFBWarnings(value="MS_SHOULD_BE_REFACTORED_TO_BE_FINAL", justification="Can't be final because FileOutputStream needs a try-catch.")
     protected static Writer writer = null;
@@ -179,40 +182,97 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         TaintDataflow flow = new TaintDataflow(cfg, analysis);
         flow.execute();
         analysis.finishAnalysis();
-        if (CONFIG.isDebugOutputTaintConfigs() && writer != null) {
-            String slashedMethodName = getSlashedMethodName(methodGen);
-            TaintMethodConfig derivedConfig = taintConfig.get(slashedMethodName);
-            if (derivedConfig != null) {
-                try {
-                    writer.append(slashedMethodName);
-
-                    Taint outputTaint = derivedConfig.getOutputTaint();
-                    if (outputTaint != null) {
-                        writer.append(':');
-                        writeTaint(outputTaint);
-                    }
-
-                    Map<Integer, Taint> parametersOutputTaints = derivedConfig.getParametersOutputTaints();
-                    if (!parametersOutputTaints.isEmpty()) {
-                        for (Map.Entry<Integer, Taint> parameterTaint : parametersOutputTaints.entrySet()) {
-                            writer.append('^');
-                            writer.append(Integer.toString(parameterTaint.getKey()));
-                            writer.append(':');
-                            writeTaint(parameterTaint.getValue());
-                        }
-                    }
-
-                    writer.append('\n');
-                    writer.flush();
-                } catch (IOException ex) {
-                    AnalysisContext.logError("Cannot write derived configs", ex);
-                }
-            }
-        }
         return flow;
     }
 
-    private void writeTaint(Taint taint) throws IOException {
+    /**
+     * Analyzes the method again and replaces the cached dataflow, the summaries and the static field
+     * taints of the other methods may have changed since the previous analysis
+     */
+    public static TaintDataflow reanalyze(IAnalysisCache cache, MethodDescriptor descriptor)
+            throws CheckedAnalysisException {
+        TaintDataflow flow = instance.analyze(cache, descriptor);
+        cache.eagerlyPutMethodAnalysis(TaintDataflow.class, descriptor, flow);
+        return flow;
+    }
+
+    /**
+     * Describes the derived summary of the method, used to detect a change between two analyses
+     */
+    public static String getSummaryKey(String slashedMethodName) {
+        TaintMethodConfig config = instance.taintConfig.get(slashedMethodName);
+        if (config == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        appendTaintKey(sb, config.getOutputTaint());
+        Map<Integer, Taint> parametersOutputTaints = new TreeMap<Integer, Taint>(config.getParametersOutputTaints());
+        for (Map.Entry<Integer, Taint> parameterTaint : parametersOutputTaints.entrySet()) {
+            sb.append('^').append(parameterTaint.getKey()).append(':');
+            appendTaintKey(sb, parameterTaint.getValue());
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Describes the taint of the static field, used to detect a change between two analyses
+     */
+    public static String getStaticFieldKey(String fieldSignature) {
+        StringBuilder sb = new StringBuilder();
+        appendTaintKey(sb, instance.taintConfig.getStaticFieldTaint(fieldSignature, null));
+        return sb.toString();
+    }
+
+    private static void appendTaintKey(StringBuilder sb, Taint taint) {
+        if (taint == null) {
+            sb.append('-');
+            return;
+        }
+        sb.append(taint.getState()).append(new TreeSet<Integer>(taint.getParameters()));
+        sb.append(taint.getNonParametricState());
+        sb.append('+').append(new TreeSet<TaintTag>(taint.getTags()));
+        sb.append('-').append(new TreeSet<TaintTag>(taint.getTagsToRemove()));
+        sb.append('@').append(taint.getRealInstanceClassName());
+    }
+
+    /**
+     * Writes the derived summary of the method, if enabled
+     */
+    public static void writeDerivedConfig(String slashedMethodName) {
+        if (!CONFIG.isDebugOutputTaintConfigs() || writer == null) {
+            return;
+        }
+        TaintMethodConfig derivedConfig = instance.taintConfig.get(slashedMethodName);
+        if (derivedConfig == null) {
+            return;
+        }
+        try {
+            writer.append(slashedMethodName);
+
+            Taint outputTaint = derivedConfig.getOutputTaint();
+            if (outputTaint != null) {
+                writer.append(':');
+                writeTaint(outputTaint);
+            }
+
+            Map<Integer, Taint> parametersOutputTaints = derivedConfig.getParametersOutputTaints();
+            if (!parametersOutputTaints.isEmpty()) {
+                for (Map.Entry<Integer, Taint> parameterTaint : parametersOutputTaints.entrySet()) {
+                    writer.append('^');
+                    writer.append(Integer.toString(parameterTaint.getKey()));
+                    writer.append(':');
+                    writeTaint(parameterTaint.getValue());
+                }
+            }
+
+            writer.append('\n');
+            writer.flush();
+        } catch (IOException ex) {
+            AnalysisContext.logError("Cannot write derived configs", ex);
+        }
+    }
+
+    private static void writeTaint(Taint taint) throws IOException {
         if (taint.isUnknown() && taint.hasParameters()) {
             writer.append(taint.getParameters().stream().map(String::valueOf).collect(Collectors.joining(",")));
 
@@ -236,14 +296,9 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         }
     }
 
-    private static String getSlashedMethodName(MethodGen methodGen) {
-        String methodNameWithSignature = methodGen.getName() + methodGen.getSignature();
-        String slashedClassName = methodGen.getClassName().replace('.', '/');
-        return slashedClassName + "." + methodNameWithSignature;
-    }
-    
     @Override
     public void registerWith(IAnalysisCache iac) {
         iac.registerMethodAnalysisEngine(TaintDataflow.class, this);
+        instance = this;
     }
 }

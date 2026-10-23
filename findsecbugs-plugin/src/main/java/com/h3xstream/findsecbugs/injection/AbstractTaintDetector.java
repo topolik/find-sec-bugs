@@ -29,9 +29,7 @@ import edu.umd.cs.findbugs.bcel.BCELUtil;
 import edu.umd.cs.findbugs.classfile.CheckedAnalysisException;
 import edu.umd.cs.findbugs.classfile.Global;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
-import java.util.HashSet;
 import java.util.Iterator;
-import java.util.Set;
 import org.apache.bcel.classfile.Attribute;
 import org.apache.bcel.classfile.BootstrapMethod;
 import org.apache.bcel.classfile.BootstrapMethods;
@@ -48,7 +46,6 @@ import org.apache.bcel.generic.INVOKEDYNAMIC;
 import org.apache.bcel.generic.Instruction;
 import org.apache.bcel.generic.InstructionHandle;
 import org.apache.bcel.generic.InvokeInstruction;
-import org.apache.bcel.generic.MethodGen;
 
 /**
  * Detector designed for extension to allow usage of taint analysis
@@ -81,57 +78,18 @@ public abstract class AbstractTaintDetector implements Detector {
         if(!shouldAnalyzeClass(classContext)) {
             return;
         }
-        Set<Method> analyzed = new HashSet<Method>();
-        for (Method method : classContext.getMethodsInCallOrder()) {
-            if (method.isStatic()) {
-                analyzeMethodAndLambdas(classContext, method, analyzed, false);
-            }
-        }
-        for (Method method : classContext.getMethodsInCallOrder()) {
-            if (!method.isStatic()) {
-                analyzeMethodAndLambdas(classContext, method, analyzed, false);
+        for (Method method : TaintFixpoint.analyze(classContext)) {
+            try {
+                analyzeMethod(classContext, method);
+            } catch (CheckedAnalysisException e) {
+                logException(classContext, method, e);
+            } catch (RuntimeException e) {
+                logException(classContext, method, e);
             }
         }
     }
 
-    /**
-     * Analyzes the lambda bodies first, so their sinks are known at the invokedynamic sites. A lambda
-     * body is pulled ahead of the call order, so its same-class callees are analyzed before it too.
-     * Other methods keep the call order, the static field taint relies on callers coming first.
-     */
-    private void analyzeMethodAndLambdas(ClassContext classContext, Method method, Set<Method> analyzed,
-                                         boolean lambda) {
-        if (!analyzed.add(method)) {
-            return;
-        }
-        MethodGen methodGen = classContext.getMethodGen(method);
-        if (methodGen == null) {
-            return;
-        }
-        JavaClass javaClass = classContext.getJavaClass();
-        ConstantPoolGen cpg = classContext.getConstantPoolGen();
-        for (InstructionHandle handle : methodGen.getInstructionList().getInstructionHandles()) {
-            Instruction instruction = handle.getInstruction();
-            Method callee = null;
-            if (instruction instanceof INVOKEDYNAMIC) {
-                callee = getLambdaImplementation(javaClass, cpg, (INVOKEDYNAMIC) instruction);
-            } else if (lambda && (instruction instanceof InvokeInstruction)) {
-                callee = getSameClassMethod(javaClass, cpg, (InvokeInstruction) instruction);
-            }
-            if (callee != null) {
-                analyzeMethodAndLambdas(classContext, callee, analyzed, true);
-            }
-        }
-        try {
-            analyzeMethod(classContext, method);
-        } catch (CheckedAnalysisException e) {
-            logException(classContext, method, e);
-        } catch (RuntimeException e) {
-            logException(classContext, method, e);
-        }
-    }
-
-    private static Method getSameClassMethod(JavaClass javaClass, ConstantPoolGen cpg, InvokeInstruction invoke) {
+    static Method getSameClassMethod(JavaClass javaClass, ConstantPoolGen cpg, InvokeInstruction invoke) {
         if (!javaClass.getClassName().equals(invoke.getReferenceType(cpg).toString())) {
             return null;
         }
