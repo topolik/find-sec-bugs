@@ -74,7 +74,7 @@ org/apache/commons/text/StringSubstitutor.<init>(Ljava/util/Map;Ljava/lang/Strin
 org/apache/commons/text/StringSubstitutor.replace(Ljava/lang/String;)Ljava/lang/String;:0,1#1
 org/apache/commons/text/StringSubstitutor.replace(Ljava/lang/Object;)Ljava/lang/String;:0,1#1
 org/apache/commons/text/StringSubstitutor.replace(Ljava/lang/CharSequence;)Ljava/lang/String;:0,1#1
-org/apache/commons/text/StringSubstitutor.replace([C)Ljava/lang/String;:0,1#1,2
+org/apache/commons/text/StringSubstitutor.replace([C)Ljava/lang/String;:0,1#1
 org/apache/commons/text/StringSubstitutor.replace(Ljava/lang/Object;Ljava/util/Map;)Ljava/lang/String;:0,1#0
 
 org/apache/commons/lang3/text/StrSubstitutor.<init>()V:SAFE
@@ -86,5 +86,5 @@ org/apache/commons/lang3/text/StrSubstitutor.<init>(Ljava/util/Map;Ljava/lang/St
 org/apache/commons/lang3/text/StrSubstitutor.replace(Ljava/lang/String;)Ljava/lang/String;:0,1#1
 org/apache/commons/lang3/text/StrSubstitutor.replace(Ljava/lang/Object;)Ljava/lang/String;:0,1#1
 org/apache/commons/lang3/text/StrSubstitutor.replace(Ljava/lang/CharSequence;)Ljava/lang/String;:0,1#1
-org/apache/commons/lang3/text/StrSubstitutor.replace([C)Ljava/lang/String;:0,1#1,2
+org/apache/commons/lang3/text/StrSubstitutor.replace([C)Ljava/lang/String;:0,1#1
 org/apache/commons/lang3/text/StrSubstitutor.replace(Ljava/lang/Object;Ljava/util/Map;)Ljava/lang/String;:0,1#0

@@ -48,6 +48,18 @@ public class StringSubstitutorSafe {
         jdbcTemplate.execute(str4.replace(templateString.toCharArray()));
     }
 
+    public void replaceCharArrayKeepsOtherValuesSafe(char[] input) {
+        String sql = "SELECT 1";
+        StringSubstitutor str = new StringSubstitutor(new HashMap<String, String>());
+
+        log(sql, str.replace(input)); //sql is on the stack below the replace operands
+
+        jdbcTemplate.execute(sql);
+    }
+
+    private static void log(String message, String detail) {
+    }
+
 
 
 }
