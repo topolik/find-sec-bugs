@@ -84,8 +84,8 @@ public abstract class AbstractHardcodedPasswordEqualsDetector extends BasicInjec
         if(!isPasswordVariable) {return;}
 
         //Mark local variable
-        Taint passwordValue = frameType.getValue(index);
-        passwordValue.addTag(Taint.Tag.PASSWORD_VARIABLE);
+        //Taint instances are shared between frames (including the stored entry fact), tag copies only
+        markPasswordVariable(frameType, index);
 
         if(numProduced <= 0) {
             if(DEBUG) System.out.println("Unexpected number of stack variable produced");
@@ -93,14 +93,16 @@ public abstract class AbstractHardcodedPasswordEqualsDetector extends BasicInjec
         }
 
         //Mark the stack value
-        try {
-            for(int indexStack=0;indexStack<numProduced;indexStack++) {
-                Taint value = frameType.getStackValue(indexStack);
-                value.addTag(Taint.Tag.PASSWORD_VARIABLE);
-            }
-        } catch (DataflowAnalysisException e) {
+        for(int indexStack=0;indexStack<numProduced;indexStack++) {
+            markPasswordVariable(frameType, frameType.getNumSlots() - 1 - indexStack);
         }
 
+    }
+
+    private void markPasswordVariable(TaintFrame frame, int slot) {
+        Taint value = new Taint(frame.getValue(slot));
+        value.addTag(Taint.Tag.PASSWORD_VARIABLE);
+        frame.setValue(slot, value);
     }
 
 }
