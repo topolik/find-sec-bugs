@@ -156,19 +156,21 @@ public class HashUnsafeEqualsDetector extends BasicInjectionDetector implements 
         if(!isHashVariable) {return;}
 
         //Mark local variable
-        Taint passwordValue = frameType.getValue(index);
-        passwordValue.addTag(Taint.Tag.HASH_VARIABLE);
+        //Taint instances are shared between frames (including the stored entry fact), tag copies only
+        markHashVariable(frameType, index);
 
         if(numProduced <= 0) {return;}
 
         //Mark the stack value
-        try {
-            for(int indexStack=0;indexStack<numProduced;indexStack++) {
-                Taint value = frameType.getStackValue(indexStack);
-                value.addTag(Taint.Tag.HASH_VARIABLE);
-            }
-        } catch (DataflowAnalysisException e) {
+        for(int indexStack=0;indexStack<numProduced;indexStack++) {
+            markHashVariable(frameType, frameType.getNumSlots() - 1 - indexStack);
         }
+    }
+
+    private void markHashVariable(TaintFrame frame, int slot) {
+        Taint value = new Taint(frame.getValue(slot));
+        value.addTag(Taint.Tag.HASH_VARIABLE);
+        frame.setValue(slot, value);
     }
 
     @Override
