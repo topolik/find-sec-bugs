@@ -86,6 +86,7 @@ public class HashUnsafeEqualsDetector extends BasicInjectionDetector implements 
         ALLOWED_WORDS.add("hashset"); // HashSet LinkedHashSet
         ALLOWED_WORDS.add("hashtable");
         ALLOWED_WORDS.add("trash"); // trashActionId
+        ALLOWED_WORDS.add("shard"); // shardName
     }
 
     public HashUnsafeEqualsDetector(BugReporter bugReporter) {
