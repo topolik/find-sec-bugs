@@ -49,7 +49,7 @@ public class HashUnsafeEqualsDetectorTest extends BaseDetectorTest {
             );
         }
 
-        for (String method : Arrays.asList("fpKeyword1", "fpKeyword2", "fpKeyword3")) {
+        for (String method : Arrays.asList("fpKeyword1", "fpKeyword2", "fpKeyword3", "fpKeyword4")) {
             verify(reporter,never()).doReportBug(
                     bugDefinition()
                             .bugType("UNSAFE_HASH_EQUALS")

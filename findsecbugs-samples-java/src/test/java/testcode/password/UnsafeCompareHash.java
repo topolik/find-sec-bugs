@@ -90,6 +90,15 @@ public abstract class UnsafeCompareHash {
         return false;
     }
 
+    public boolean fpKeyword4(String uniqueShardName, String defaultShardName) {
+
+        if(uniqueShardName.equals(defaultShardName)) {
+            return true;
+        }
+
+        return false;
+    }
+
     public abstract String getHash(String username);
     public abstract byte[] getHashBytes(String username);
     public abstract byte[] getSharedProperty(String username);
