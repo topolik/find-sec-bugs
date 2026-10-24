@@ -81,6 +81,15 @@ public abstract class UnsafeCompareHash {
         return false;
     }
 
+    public boolean fpKeyword3(String trashActionId, String actionId) {
+
+        if(trashActionId.equals(actionId)) {
+            return true;
+        }
+
+        return false;
+    }
+
     public abstract String getHash(String username);
     public abstract byte[] getHashBytes(String username);
     public abstract byte[] getSharedProperty(String username);
