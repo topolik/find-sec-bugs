@@ -43,6 +43,7 @@ public class FindSecBugsGlobalConfig {
     private boolean reportPotentialXssWrongContext;
     private String taintConfigUsage;
     private String taintConfigUsageFile;
+    private String taintExcludeConfigKeys;
 
     protected FindSecBugsGlobalConfig() {
         debugOutputTaintConfigs = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.outputconfigs", Boolean.FALSE.toString()));
@@ -55,6 +56,7 @@ public class FindSecBugsGlobalConfig {
         verboseLocationReport = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.verboselocationreport", Boolean.FALSE.toString()));
         taintConfigUsage = loadFromSystem("findsecbugs.taint.configusage", null);
         taintConfigUsageFile = loadFromSystem("findsecbugs.taint.configusagefile", "config-usage.txt");
+        taintExcludeConfigKeys = loadFromSystem("findsecbugs.taint.excludeconfigkeys", null);
     }
 
     public String loadFromSystem(String key, String defaultValue) {
@@ -188,6 +190,17 @@ public class FindSecBugsGlobalConfig {
 
     public void setTaintConfigUsageFile(String taintConfigUsageFile) {
         this.taintConfigUsageFile = taintConfigUsageFile;
+    }
+
+    /**
+     * File listing the keys dropped from the custom taint configs, one key per line
+     */
+    public String getTaintExcludeConfigKeys() {
+        return taintExcludeConfigKeys;
+    }
+
+    public void setTaintExcludeConfigKeys(String taintExcludeConfigKeys) {
+        this.taintExcludeConfigKeys = taintExcludeConfigKeys;
     }
 
     public boolean isReportPotentialXssWrongContext() {

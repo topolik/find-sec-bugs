@@ -75,6 +75,9 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
     private final Map<String, Boolean> receiverTransferMethodCache = new ConcurrentHashMap<String, Boolean>();
 
     private transient TaintConfigUsage usage;
+    private transient Set<String> excludedKeys = Collections.emptySet();
+    private final Set<String> excludedMatches = new HashSet<String>();
+    private int excludedEntries;
 
     /**
      * Dumps all the summaries for debugging
@@ -117,6 +120,9 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
         new TaintConfigLoader().load(input, new TaintConfigLoader.TaintConfigReceiver() {
             @Override
             public void receiveTaintConfig(String typeSignature, String config) throws IOException {
+                if (custom && isExcluded(typeSignature)) {
+                    return;
+                }
                 if (typeSignature.startsWith("@")) {
                     if (!"RECEIVER".equals(config.trim())) {
                         throw new IllegalArgumentException("Invalid annotation config " + typeSignature + ":" + config);
@@ -179,6 +185,9 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
                     methodConfig.setTypeSignature(typeSignature);
 
                     String key = typeSignature + '@' + methodConfig.getLocation();
+                    if (custom && isExcluded(key)) {
+                        return;
+                    }
                     TaintMethodConfig previous = taintMethodConfigWithArgumentsAndLocationMap.put(key, methodConfig);
                     if (usage != null) {
                         usage.recordMethod(key, 'L', sourceId, previous, methodConfig);
@@ -191,6 +200,37 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
         });
     }
 
+
+    private boolean isExcluded(String key) {
+        if (!excludedKeys.contains(key)) {
+            return false;
+        }
+        excludedEntries++;
+        excludedMatches.add(key);
+        return true;
+    }
+
+    /**
+     * Drops the given keys from the custom configs loaded afterwards, location entries are matched
+     * by the signature followed by @ and the location
+     */
+    public void setExcludedKeys(Set<String> excludedKeys) {
+        this.excludedKeys = excludedKeys;
+    }
+
+    /**
+     * @return number of custom entries dropped by the excluded keys
+     */
+    public int getExcludedEntries() {
+        return excludedEntries;
+    }
+
+    /**
+     * @return number of excluded keys that matched a custom entry
+     */
+    public int getExcludedMatches() {
+        return excludedMatches.size();
+    }
 
     public TaintConfigUsage getUsage() {
         return usage;

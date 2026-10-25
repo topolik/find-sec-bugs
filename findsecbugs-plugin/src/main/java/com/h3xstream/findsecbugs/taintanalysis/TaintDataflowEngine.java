@@ -38,9 +38,13 @@ import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.io.UnsupportedEncodingException;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.logging.Level;
@@ -87,6 +91,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     };
     private static TaintDataflowEngine instance;
     private final TaintConfig taintConfig = new TaintConfig();
+    private int excludedKeyCount;
     @SuppressFBWarnings(value="MS_SHOULD_BE_REFACTORED_TO_BE_FINAL", justification="Can't be final because FileOutputStream needs a try-catch.")
     protected static Writer writer = null;
     private static List<TaintFrameAdditionalVisitor> visitors = new ArrayList<TaintFrameAdditionalVisitor>();
@@ -134,11 +139,21 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
             loadTaintConfig(TAINT_CONFIG_PATH.concat("tainted-system-variables.txt"), false);
             LOGGER.info("System variables are considered to be tainted");
         }
+        String excludeConfigKeys = CONFIG.getTaintExcludeConfigKeys();
+        if (excludeConfigKeys != null && !excludeConfigKeys.isEmpty()) {
+            taintConfig.setExcludedKeys(loadExcludedKeys(excludeConfigKeys));
+        }
         String customConfigFile = CONFIG.getCustomConfigFile();
         if (customConfigFile != null && !customConfigFile.isEmpty()) {
             for (String configFile : customConfigFile.split(File.pathSeparator)) {
                 addCustomConfig(configFile);
             }
+        }
+        if (excludeConfigKeys != null && !excludeConfigKeys.isEmpty()) {
+            LOGGER.log(Level.INFO, "Excluded {0} entries ({1} distinct keys) from custom taint config, {2} keys listed in {3}",
+                    new Object[] {String.valueOf(taintConfig.getExcludedEntries()),
+                    String.valueOf(taintConfig.getExcludedMatches()), String.valueOf(excludedKeyCount),
+                    excludeConfigKeys});
         }
         if (!CONFIG.isTaintedMainArgument()) {
             LOGGER.info("The argument of the main method is not considered tainted");
@@ -159,6 +174,22 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         }
     }
     
+    private Set<String> loadExcludedKeys(String path) {
+        Set<String> keys = new HashSet<String>();
+        try {
+            for (String line : Files.readAllLines(new File(path).toPath(), StandardCharsets.UTF_8)) {
+                String key = line.trim();
+                if (!key.isEmpty() && !key.startsWith("#")) {
+                    keys.add(key);
+                }
+            }
+        } catch (IOException ex) {
+            throw new RuntimeException("Cannot load excluded taint config keys from " + path, ex);
+        }
+        excludedKeyCount = keys.size();
+        return keys;
+    }
+
     private void addCustomConfig(String path) {
         File file = new File(path);
         try (InputStream stream = file.exists()
