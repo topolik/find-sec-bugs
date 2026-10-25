@@ -680,13 +680,18 @@ public class TaintConfigUsage {
      * outputs, the mutable parameters merged with the default taint (~)
      *
      * @param config the summary
-     * @param returnType "V" for void methods, the output is ignored then
+     * @param returnType "V" for void methods, the output is ignored then unless it goes to mutable indices
      * @param signatureMutables stack indices of the mutable parameters, null if unknown
      */
     static String summarize(TaintMethodConfig config, String returnType, List<Integer> signatureMutables) {
         StringBuilder sb = new StringBuilder();
         if ("V".equals(returnType)) {
             sb.append("void");
+            if (config.hasMutableStackIndices()) {
+                // e.g. the receiver of a constructor
+                sb.append('=');
+                appendTaintKey(sb, config.getOutputTaint());
+            }
         } else {
             appendTaintKey(sb, config.getOutputTaint());
         }

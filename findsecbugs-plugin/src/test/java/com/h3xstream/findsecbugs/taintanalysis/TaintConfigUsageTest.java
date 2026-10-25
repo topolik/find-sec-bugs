@@ -93,6 +93,9 @@ public class TaintConfigUsageTest extends BaseDetectorTest {
             assertVerdict(usages, PACKAGE + "ConfigUsageBase.label()Ljava/lang/String;", "effective", 1);
             assertFalse(usages.containsKey(PACKAGE + "ConfigUsageChild.label()Ljava/lang/String;"));
 
+            // the output taint of a void summary goes to the mutable indices, the default constructor makes it UNKNOWN
+            assertVerdict(usages, PACKAGE + "ConfigUsageHolder.<init>(Ljava/lang/String;)V", "differs", 1);
+
             String[] location = usages.get(PACKAGE + "ConfigUsageService.lookup(\"safe\")@" + PACKAGE + "ConfigUsageSamples");
             assertTrue(location != null, "location entry " + usages.keySet());
             assertEquals(location[2], "L");
