@@ -90,6 +90,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     @SuppressFBWarnings(value="MS_SHOULD_BE_REFACTORED_TO_BE_FINAL", justification="Can't be final because FileOutputStream needs a try-catch.")
     protected static Writer writer = null;
     private static List<TaintFrameAdditionalVisitor> visitors = new ArrayList<TaintFrameAdditionalVisitor>();
+    private static boolean configUsageShutdownHook;
 
 
     static {
@@ -112,6 +113,13 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
      * Constructs the engine and loads all configured method summaries
      */
     public TaintDataflowEngine() {
+        if (CONFIG.isTaintConfigUsage()) {
+            taintConfig.setUsage(new TaintConfigUsage(CONFIG.isTaintConfigUsageAll()));
+            registerConfigUsageShutdownHook();
+            LOGGER.log(Level.INFO, "Taint config usage accounting enabled (mode {0}), output to {1}", new Object[] {
+                CONFIG.isTaintConfigUsageAll() ? "all" : "used",
+                new File(CONFIG.getTaintConfigUsageFile()).getAbsolutePath()});
+        }
         for (String path : TAINT_CONFIG_FILENAMES) {
             loadTaintConfig(TAINT_CONFIG_PATH.concat(path), true);
         }
@@ -145,7 +153,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         assert path != null && !path.isEmpty();
 
         try (InputStream stream = getClass().getClassLoader().getResourceAsStream(path)) {
-            taintConfig.load(stream, checkRewrite);
+            taintConfig.load(stream, checkRewrite, path, false);
         } catch (IOException ex) {
             assert false : ex.getMessage();
         }
@@ -162,7 +170,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
                         file.getAbsolutePath(), path);
                 throw new IllegalArgumentException(message);
             }
-            taintConfig.load(stream, false);
+            taintConfig.load(stream, false, path, true);
             LOGGER.log(Level.INFO, "Custom taint config loaded from {0}", path);
         } catch (IOException ex) {
             throw new RuntimeException("Cannot load custom taint config from " + path, ex);
@@ -294,6 +302,35 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
             writer.append('|');
             writer.append(taint.getTagsToRemove().stream().map(TaintTag::name).collect(Collectors.joining(",", "-", "")));
         }
+    }
+
+    /**
+     * Writes the taint config usage of the current engine, if enabled and changed since the last write
+     */
+    public static void writeConfigUsage() {
+        TaintDataflowEngine engine = instance;
+        if (engine == null) {
+            return;
+        }
+        TaintConfigUsage usage = engine.taintConfig.getUsage();
+        if (usage != null) {
+            synchronized (usage) {
+                usage.write(engine.taintConfig, CONFIG.getTaintConfigUsageFile());
+            }
+        }
+    }
+
+    private static synchronized void registerConfigUsageShutdownHook() {
+        if (configUsageShutdownHook) {
+            return;
+        }
+        configUsageShutdownHook = true;
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            @Override
+            public void run() {
+                writeConfigUsage();
+            }
+        }, "taint-config-usage"));
     }
 
     @Override

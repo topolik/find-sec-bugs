@@ -104,6 +104,16 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
     }
 
     private Collection<Integer> getMutableStackIndices(String signature) {
+        return getMutableStackIndices(taintConfig, signature);
+    }
+
+    /**
+     * Returns the stack indices of the method arguments an unconfigured call may mutate
+     *
+     * @param taintConfig config telling the immutable classes
+     * @param signature method signature
+     */
+    static Collection<Integer> getMutableStackIndices(TaintConfig taintConfig, String signature) {
         assert signature != null && !signature.isEmpty();
         ArrayList<Integer> indices = new ArrayList<Integer>();
         int stackIndex = 0;
@@ -679,6 +689,10 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         String methodName = obj.getMethodName(cpg);
         String methodId = "." + methodName + signature;
         TaintMethodConfig config = taintConfig.getMethodConfig(getFrame(), methodDescriptor, className, methodId);
+        TaintConfigUsage usage = taintConfig.getUsage();
+        if (usage != null && config != null && usage.isCustom(config)) {
+            recordConfigUsage(usage, obj, config, className, methodName, methodId, returnType);
+        }
         if (config != null) {
             config = getConfigWithReplaceTags(config, className, methodName);
         }
@@ -721,6 +735,39 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             }
         }
         return null;
+    }
+
+    /**
+     * Records the custom summary used for the call with what the call would get without it,
+     * the analysis must not depend on anything done here
+     */
+    private void recordConfigUsage(TaintConfigUsage usage, InvokeInstruction obj, TaintMethodConfig config,
+            String className, String methodName, String methodId, String returnType) {
+        try {
+            boolean location = config instanceof TaintMethodConfigWithArgumentsAndLocation;
+            String matchedKey = config.getTypeSignature();
+            if (location) {
+                matchedKey = matchedKey + '@' + ((TaintMethodConfigWithArgumentsAndLocation) config).getLocation();
+            }
+            boolean instance = !(obj instanceof INVOKESTATIC) && !(obj instanceof INVOKEDYNAMIC);
+            String siteKey = matchedKey + '|' + className + methodId + (instance ? "" : "|s");
+            TaintConfigUsage.Site site = usage.getSite(siteKey);
+            if (site == null) {
+                int numArgs = BCELUtil.getNumArgumentsIncludingObjectInstance(obj, cpg);
+                int receiverIndex = instance && taintConfig.isReceiverTransferMethodQuietly(className, methodId)
+                        ? numArgs - 1 : -1;
+                int constructorStackSize = Const.CONSTRUCTOR_NAME.equals(methodName)
+                        && !taintConfig.isClassTaintSafe("L" + className + ";") ? numArgs : 0;
+                site = new TaintConfigUsage.Site(matchedKey, className, methodId, location,
+                        taintConfig.getParentClassNamesQuietly(className), taintConfig.isClassTaintSafe(returnType),
+                        isAnnotationElement(obj, className), receiverIndex, constructorStackSize,
+                        getMutableStackIndices(obj.getSignature(cpg)));
+                usage.addSite(siteKey, site);
+            }
+            usage.recordHit(site, config);
+        } catch (Throwable t) {
+            usage.recordFailure(t);
+        }
     }
 
     /**
@@ -1078,6 +1125,15 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         String fullMethodName = className.concat(methodId);
         TaintMethodConfig previousConfig = taintConfig.get(fullMethodName);
         if (previousConfig != null && previousConfig.isConfigured()) {
+            TaintConfigUsage usage = taintConfig.getUsage();
+            if (usage != null && usage.isCustom(previousConfig)) {
+                try {
+                    usage.recordShadow(fullMethodName, analyzedMethodConfig, analyzedMethodConfig.isInformative()
+                            || taintConfig.hasSuperMethodConfigQuietly(className, methodId));
+                } catch (Throwable t) {
+                    usage.recordFailure(t);
+                }
+            }
             // prefer configured summaries to derived
             return;
         }

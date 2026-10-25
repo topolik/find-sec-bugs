@@ -30,9 +30,12 @@ import org.apache.bcel.classfile.Method;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -71,6 +74,8 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
     private final Set<String> receiverTransferAnnotations = new HashSet<String>();
     private final Map<String, Boolean> receiverTransferMethodCache = new ConcurrentHashMap<String, Boolean>();
 
+    private transient TaintConfigUsage usage;
+
     /**
      * Dumps all the summaries for debugging
      * 
@@ -93,6 +98,22 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
      * @throws IllegalStateException if there are duplicit configurations
      */
     public void load(InputStream input, final boolean checkRewrite) throws IOException {
+        load(input, checkRewrite, null, false);
+    }
+
+    /**
+     * Loads summaries from stream checking the format
+     *
+     * @param input input stream of configured summaries
+     * @param checkRewrite whether to check duplicit summaries
+     * @param source resource name or path of the config, for the usage accounting
+     * @param custom whether the config is custom, for the usage accounting
+     * @throws IOException if cannot read the stream or the format is bad
+     * @throws IllegalArgumentException for bad method format
+     * @throws IllegalStateException if there are duplicit configurations
+     */
+    public void load(InputStream input, final boolean checkRewrite, String source, boolean custom) throws IOException {
+        final int sourceId = usage == null ? -1 : usage.addSource(source, custom);
         new TaintConfigLoader().load(input, new TaintConfigLoader.TaintConfigReceiver() {
             @Override
             public void receiveTaintConfig(String typeSignature, String config) throws IOException {
@@ -102,6 +123,9 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
                     }
                     receiverTransferAnnotations.add("L" + typeSignature.substring(1) + ";");
                     receiverTransferMethodCache.clear();
+                    if (usage != null) {
+                        usage.recordOther(typeSignature, 'A', sourceId, config.trim());
+                    }
                     return;
                 }
 
@@ -111,7 +135,10 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
                     }
                     TaintMethodConfig taintMethodConfig = new TaintMethodConfig(true).load(config);
                     taintMethodConfig.setTypeSignature(typeSignature);
-                    put(typeSignature, taintMethodConfig);
+                    TaintMethodConfig previous = put(typeSignature, taintMethodConfig);
+                    if (usage != null) {
+                        usage.recordMethod(typeSignature, 'M', sourceId, previous, taintMethodConfig);
+                    }
                     return;
                 }
 
@@ -122,6 +149,9 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
                     TaintClassConfig taintClassConfig = new TaintClassConfig().load(config);
                     taintClassConfig.setTypeSignature(typeSignature);
                     taintClassConfigMap.put(typeSignature, taintClassConfig);
+                    if (usage != null) {
+                        usage.recordOther(typeSignature, 'C', sourceId, config);
+                    }
                     return;
                 }
 
@@ -132,6 +162,9 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
                     TaintFieldConfig taintFieldConfig = new TaintFieldConfig().load(config);
                     taintFieldConfig.setTypeSignature(typeSignature);
                     taintFieldConfigMap.put(typeSignature, taintFieldConfig);
+                    if (usage != null) {
+                        usage.recordOther(typeSignature, 'F', sourceId, config);
+                    }
                     return;
                 }
 
@@ -146,7 +179,10 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
                     methodConfig.setTypeSignature(typeSignature);
 
                     String key = typeSignature + '@' + methodConfig.getLocation();
-                    taintMethodConfigWithArgumentsAndLocationMap.put(key, methodConfig);
+                    TaintMethodConfig previous = taintMethodConfigWithArgumentsAndLocationMap.put(key, methodConfig);
+                    if (usage != null) {
+                        usage.recordMethod(key, 'L', sourceId, previous, methodConfig);
+                    }
                     return;
                 }
 
@@ -155,6 +191,17 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
         });
     }
 
+
+    public TaintConfigUsage getUsage() {
+        return usage;
+    }
+
+    /**
+     * Enables the usage accounting of the summaries loaded afterwards
+     */
+    public void setUsage(TaintConfigUsage usage) {
+        this.usage = usage;
+    }
 
     public boolean isClassImmutable(String typeSignature) {
         if (!isClassType(typeSignature)) {
@@ -314,6 +361,72 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
         }
 
         return null;
+    }
+
+    /**
+     * Returns the supertypes in the order {@link #getSuperMethodConfig(String, String)} visits them,
+     * without reporting missing classes
+     *
+     * @param className slashed name of the class
+     * @return supertype names, empty for arrays and missing classes
+     */
+    public List<String> getParentClassNamesQuietly(String className) {
+        if (className.endsWith("]")) {
+            return Collections.emptyList();
+        }
+        try {
+            return new ArrayList<String>(BCELUtil.getParentClassNamesQuietly(Repository.lookupClass(className)));
+        } catch (ClassNotFoundException ex) {
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Whether {@link #getSuperMethodConfig(String, String)} finds a summary, without reporting missing classes
+     */
+    public boolean hasSuperMethodConfigQuietly(String className, String methodId) {
+        for (String parentClassName : getParentClassNamesQuietly(className)) {
+            if (containsKey(parentClassName.concat(methodId))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Same as {@link #isReceiverTransferMethod(String, String)} without reporting missing classes
+     * and without caching the result
+     */
+    public boolean isReceiverTransferMethodQuietly(String className, String methodId) {
+        if (receiverTransferAnnotations.isEmpty() || className.endsWith("]")) {
+            return false;
+        }
+
+        Boolean result = receiverTransferMethodCache.get(className.concat(methodId));
+        if (result != null) {
+            return result;
+        }
+        int signatureIndex = methodId.indexOf('(');
+        String methodName = methodId.substring(1, signatureIndex);
+        String signature = methodId.substring(signatureIndex);
+        try {
+            JavaClass javaClass = Repository.lookupClass(className);
+            if (hasReceiverTransferAnnotation(javaClass, methodName, signature)) {
+                return true;
+            }
+            for (String parentClassName : BCELUtil.getParentClassNamesQuietly(javaClass)) {
+                try {
+                    if (hasReceiverTransferAnnotation(Repository.lookupClass(parentClassName), methodName, signature)) {
+                        return true;
+                    }
+                } catch (ClassNotFoundException ex) {
+                    // ignore
+                }
+            }
+        } catch (ClassNotFoundException ex) {
+            // ignore
+        }
+        return false;
     }
 
     /**
