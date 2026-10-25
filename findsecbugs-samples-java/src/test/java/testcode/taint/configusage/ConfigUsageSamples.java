@@ -41,5 +41,6 @@ public class ConfigUsageSamples {
         service.getName();
         service.lookup("safe");
         child.label();
+        new ConfigUsageHolder(value);
     }
 }

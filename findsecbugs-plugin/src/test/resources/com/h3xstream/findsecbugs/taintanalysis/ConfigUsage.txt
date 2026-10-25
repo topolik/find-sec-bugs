@@ -7,6 +7,7 @@ testcode/taint/configusage/ConfigUsageSamples.parameter(Ljavax/servlet/http/Http
 testcode/taint/configusage/ConfigUsageService.getName()Ljava/lang/String;:SAFE
 testcode/taint/configusage/ConfigUsageService.lookup("safe"):SAFE@testcode/taint/configusage/ConfigUsageSamples
 testcode/taint/configusage/ConfigUsageBase.label()Ljava/lang/String;:SAFE
+testcode/taint/configusage/ConfigUsageHolder.<init>(Ljava/lang/String;)V:0#1,2
 javax/servlet/http/HttpServletRequest.getQueryString()Ljava/lang/String;:SAFE
 java/lang/Integer.toString()Ljava/lang/String;:SAFE
 Ltestcode/taint/configusage/ConfigUsageUnrelated;:SAFE
