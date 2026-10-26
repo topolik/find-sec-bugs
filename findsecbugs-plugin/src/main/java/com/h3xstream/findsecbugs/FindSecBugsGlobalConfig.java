@@ -45,6 +45,8 @@ public class FindSecBugsGlobalConfig {
     private String taintConfigUsageFile;
     private String taintExcludeConfigKeys;
     private String taintImportConfigFile;
+    private String taintDistrustDerived;
+    private String taintDistrustDerivedFile;
 
     protected FindSecBugsGlobalConfig() {
         debugOutputTaintConfigs = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.outputconfigs", Boolean.FALSE.toString()));
@@ -59,6 +61,8 @@ public class FindSecBugsGlobalConfig {
         taintConfigUsageFile = loadFromSystem("findsecbugs.taint.configusagefile", "config-usage.txt");
         taintExcludeConfigKeys = loadFromSystem("findsecbugs.taint.excludeconfigkeys", null);
         taintImportConfigFile = loadFromSystem("findsecbugs.taint.importconfigfile", null);
+        taintDistrustDerived = loadFromSystem("findsecbugs.taint.distrustderived", null);
+        taintDistrustDerivedFile = loadFromSystem("findsecbugs.taint.distrustderivedfile", null);
     }
 
     public String loadFromSystem(String key, String defaultValue) {
@@ -215,6 +219,30 @@ public class FindSecBugsGlobalConfig {
 
     public void setTaintImportConfigFile(String taintImportConfigFile) {
         this.taintImportConfigFile = taintImportConfigFile;
+    }
+
+    /**
+     * Kinds of derived summaries not applied to the calls, separated by commas: {@code override} for
+     * the methods declared by a known subtype of the receiver class, {@code constructor} for the
+     * constructed object
+     */
+    public String getTaintDistrustDerived() {
+        return taintDistrustDerived;
+    }
+
+    public void setTaintDistrustDerived(String taintDistrustDerived) {
+        this.taintDistrustDerived = taintDistrustDerived;
+    }
+
+    /**
+     * File listing the distrusted derived summaries with their overriders
+     */
+    public String getTaintDistrustDerivedFile() {
+        return taintDistrustDerivedFile;
+    }
+
+    public void setTaintDistrustDerivedFile(String taintDistrustDerivedFile) {
+        this.taintDistrustDerivedFile = taintDistrustDerivedFile;
     }
 
     public boolean isReportPotentialXssWrongContext() {

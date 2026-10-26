@@ -100,6 +100,9 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     protected static Writer writer = null;
     private static List<TaintFrameAdditionalVisitor> visitors = new ArrayList<TaintFrameAdditionalVisitor>();
     private static boolean configUsageShutdownHook;
+    private static final Set<String> distrustedSummaries = new HashSet<String>();
+    private static String distrustFileName;
+    private static Writer distrustWriter;
 
 
     static {
@@ -161,6 +164,11 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         }
         if (!CONFIG.isTaintedMainArgument()) {
             LOGGER.info("The argument of the main method is not considered tainted");
+        }
+        String distrustDerived = CONFIG.getTaintDistrustDerived();
+        taintConfig.setDistrustedDerived(distrustDerived);
+        if (distrustDerived != null && !distrustDerived.isEmpty()) {
+            LOGGER.log(Level.INFO, "Derived summaries not applied: {0}", distrustDerived);
         }
     }
 
@@ -343,6 +351,47 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
             writer.flush();
         } catch (IOException ex) {
             AnalysisContext.logError("Cannot write derived configs", ex);
+        }
+    }
+
+    /**
+     * Writes the derived summary not applied to a call once, if enabled
+     *
+     * @param kind override or constructor
+     * @param methodName slashed class name with the method id
+     * @param overriders known subtypes declaring the method, null if not relevant
+     * @param resolved false if the subtypes are not known
+     */
+    public static synchronized void writeDistrustedSummary(String kind, String methodName, Set<String> overriders,
+            boolean resolved) {
+        String fileName = CONFIG.getTaintDistrustDerivedFile();
+        if (fileName == null || fileName.isEmpty()) {
+            return;
+        }
+        try {
+            if (!fileName.equals(distrustFileName)) {
+                if (distrustWriter != null) {
+                    distrustWriter.close();
+                }
+                distrustedSummaries.clear();
+                distrustFileName = fileName;
+                distrustWriter = new BufferedWriter(new OutputStreamWriter(
+                        new FileOutputStream(fileName), StandardCharsets.UTF_8));
+            }
+            if (!distrustedSummaries.add(kind + ' ' + methodName)) {
+                return;
+            }
+            distrustWriter.append(kind).append('\t').append(methodName);
+            if (!resolved) {
+                distrustWriter.append("\t?");
+            } else if (overriders != null) {
+                distrustWriter.append('\t').append(String.valueOf(overriders.size())).append('\t')
+                        .append(overriders.stream().limit(10).collect(Collectors.joining(",")));
+            }
+            distrustWriter.append('\n');
+            distrustWriter.flush();
+        } catch (IOException ex) {
+            AnalysisContext.logError("Cannot write distrusted derived summaries", ex);
         }
     }
 

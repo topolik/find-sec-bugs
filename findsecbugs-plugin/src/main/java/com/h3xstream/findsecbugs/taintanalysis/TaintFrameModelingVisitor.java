@@ -719,22 +719,54 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                 throw new InvalidBytecodeException(ex.getMessage(), ex);
             }
         }
+        String classNameSignature = "L" + className + ";";
+        boolean constructor = Const.CONSTRUCTOR_NAME.equals(methodName)
+                && !taintConfig.isClassTaintSafe(classNameSignature);
         if (config != null) {
+            if (constructor && taintConfig.isDistrustingDerivedConstructors()) {
+                // the derived summary does not describe the constructed object
+                TaintDataflowEngine.writeDistrustedSummary("constructor", className + methodId, null, true);
+                return getDefaultConstructorConfig(obj, className, config);
+            }
+            if ((obj instanceof INVOKEVIRTUAL || obj instanceof INVOKEINTERFACE)
+                    && taintConfig.isDistrustingDerivedOverrides()) {
+                // the derived summary describes one implementation of the method
+                Set<String> overriders = taintConfig.getOverriders(className, methodId);
+                if (overriders == null || !overriders.isEmpty()) {
+                    TaintDataflowEngine.writeDistrustedSummary("override", className + methodId, overriders,
+                            overriders != null);
+                    return null;
+                }
+            }
             return config;
         }
-        String classNameSignature = "L" + className + ";";
-        if (Const.CONSTRUCTOR_NAME.equals(methodName)
-                && !taintConfig.isClassTaintSafe(classNameSignature)) {
-            try {
-                int stackSize = getFrame().getNumArgumentsIncludingObjectInstance(obj, cpg);
-                config = TaintMethodConfig.getDefaultConstructorConfig(stackSize);
-                config.setTypeSignature(className+"<init>()V");
-                return config;
-            } catch (DataflowAnalysisException ex) {
-                throw new InvalidBytecodeException(ex.getMessage(), ex);
-            }
+        if (constructor) {
+            return getDefaultConstructorConfig(obj, className, null);
         }
         return null;
+    }
+
+    /**
+     * Gets the summary of a constructor that taints the constructed object with unknown taint
+     *
+     * @param derivedConfig derived summary to take the argument taints from, null if not known
+     */
+    private TaintMethodConfig getDefaultConstructorConfig(InvokeInstruction obj, String className,
+            TaintMethodConfig derivedConfig) {
+        try {
+            int stackSize = getFrame().getNumArgumentsIncludingObjectInstance(obj, cpg);
+            TaintMethodConfig config = TaintMethodConfig.getDefaultConstructorConfig(stackSize);
+            config.setTypeSignature(className+"<init>()V");
+            if (derivedConfig != null && derivedConfig.isParametersOutputTaintsProcessed()) {
+                for (Map.Entry<Integer, Taint> entry : derivedConfig.getParametersOutputTaints().entrySet()) {
+                    config.setParameterOutputTaint(entry.getKey(), new Taint(entry.getValue()));
+                }
+                config.setParametersOutputTaintsProcessed(true);
+            }
+            return config;
+        } catch (DataflowAnalysisException ex) {
+            throw new InvalidBytecodeException(ex.getMessage(), ex);
+        }
     }
 
     /**
