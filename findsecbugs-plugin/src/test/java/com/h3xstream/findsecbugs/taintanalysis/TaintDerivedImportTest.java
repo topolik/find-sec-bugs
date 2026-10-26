@@ -41,6 +41,7 @@ public class TaintDerivedImportTest extends BaseDetectorTest {
 
     private static final String FILL = "testcode/taint/derivedimport/DerivedImportHelper.fill(Ljava/lang/StringBuilder;)V";
     private static final String GET = "testcode/taint/derivedimport/DerivedImportSource.get()Ljava/lang/String;";
+    private static final String TOUCH = "testcode/taint/derivedimport/DerivedImportHelper.touch(Ljava/lang/String;)V";
 
     @Test
     public void derivedTaintRoundTrip() throws Exception {
@@ -144,6 +145,20 @@ public class TaintDerivedImportTest extends BaseDetectorTest {
 
         verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
                 .inClass("DerivedImportSamples").inMethod("sourceCommand").build());
+    }
+
+    @Test
+    public void importedArgumentSummaryMergesAtJoin() throws Exception {
+        String[] files = {
+                getClassFilePath("testcode/taint/derivedimport/DerivedImportSamples")
+        };
+
+        EasyBugReporter reporter = spy(new SecurityReporter());
+        analyzeWithImport(files, reporter, TOUCH + "^0:0");
+
+        //The argument rewritten by the imported summary joins the untouched one before the sink
+        verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                .inClass("DerivedImportSamples").inMethod("touchCommand").build());
     }
 
     @Test

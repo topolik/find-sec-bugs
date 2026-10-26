@@ -10,6 +10,14 @@ public class DerivedImportSamples {
         Runtime.getRuntime().exec(sb.toString());
     }
 
+    public void touchCommand(boolean flag, String suffix) throws IOException {
+        String command = "ls ";
+        if (flag) {
+            DerivedImportHelper.touch(command);
+        }
+        Runtime.getRuntime().exec(command + suffix);
+    }
+
     public void sourceCommand(DerivedImportSource source) throws IOException {
         Runtime.getRuntime().exec(source.get());
     }
