@@ -47,6 +47,7 @@ public class FindSecBugsGlobalConfig {
     private String taintImportConfigFile;
     private String taintDistrustDerived;
     private String taintDistrustDerivedFile;
+    private int taintDistrustDerivedMaxMerged;
 
     protected FindSecBugsGlobalConfig() {
         debugOutputTaintConfigs = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.outputconfigs", Boolean.FALSE.toString()));
@@ -63,6 +64,7 @@ public class FindSecBugsGlobalConfig {
         taintImportConfigFile = loadFromSystem("findsecbugs.taint.importconfigfile", null);
         taintDistrustDerived = loadFromSystem("findsecbugs.taint.distrustderived", null);
         taintDistrustDerivedFile = loadFromSystem("findsecbugs.taint.distrustderivedfile", null);
+        taintDistrustDerivedMaxMerged = Integer.parseInt(loadFromSystem("findsecbugs.taint.distrustderivedmaxmerged", "16"));
     }
 
     public String loadFromSystem(String key, String defaultValue) {
@@ -223,8 +225,8 @@ public class FindSecBugsGlobalConfig {
 
     /**
      * Kinds of derived summaries not applied to the calls, separated by commas: {@code override} for
-     * the methods declared by a known subtype of the receiver class, {@code constructor} for the
-     * constructed object
+     * the methods declared by a known subtype of the receiver class, {@code merge} to apply the summary
+     * merged with the summaries of the subtypes instead, {@code constructor} for the constructed object
      */
     public String getTaintDistrustDerived() {
         return taintDistrustDerived;
@@ -243,6 +245,17 @@ public class FindSecBugsGlobalConfig {
 
     public void setTaintDistrustDerivedFile(String taintDistrustDerivedFile) {
         this.taintDistrustDerivedFile = taintDistrustDerivedFile;
+    }
+
+    /**
+     * Maximum number of subtypes whose summaries are merged with the summary of the receiver class
+     */
+    public int getTaintDistrustDerivedMaxMerged() {
+        return taintDistrustDerivedMaxMerged;
+    }
+
+    public void setTaintDistrustDerivedMaxMerged(int taintDistrustDerivedMaxMerged) {
+        this.taintDistrustDerivedMaxMerged = taintDistrustDerivedMaxMerged;
     }
 
     public boolean isReportPotentialXssWrongContext() {

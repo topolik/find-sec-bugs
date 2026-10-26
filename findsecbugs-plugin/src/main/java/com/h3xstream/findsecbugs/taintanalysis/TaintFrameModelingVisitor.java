@@ -736,6 +736,9 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                 if (overriders == null || !overriders.isEmpty()) {
                     TaintDataflowEngine.writeDistrustedSummary("override", className + methodId, overriders,
                             overriders != null);
+                    if (overriders != null && taintConfig.isMergingDerivedOverrides()) {
+                        return getMergedOverridersConfig(obj, className, methodName, methodId, config, overriders);
+                    }
                     return null;
                 }
             }
@@ -745,6 +748,136 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             return getDefaultConstructorConfig(obj, className, null);
         }
         return null;
+    }
+
+    /**
+     * Merges the derived summary with the summaries of the methods overriding it, any of the
+     * implementations may be invoked at runtime
+     *
+     * @return merged summary, null if the summary of an overriding method is not known yet or the
+     * summaries cannot be merged
+     */
+    private TaintMethodConfig getMergedOverridersConfig(InvokeInstruction obj, String className, String methodName,
+            String methodId, TaintMethodConfig config, Set<String> overriders) {
+        TaintMethodConfig mergedConfig = null;
+        String outcome;
+        if (overriders.size() > FindSecBugsGlobalConfig.getInstance().getTaintDistrustDerivedMaxMerged()) {
+            outcome = "capped";
+        } else {
+            List<TaintMethodConfig> configs = new ArrayList<TaintMethodConfig>();
+            configs.add(config);
+            boolean pending = false;
+            boolean absent = false;
+            for (String overrider : overriders) {
+                TaintMethodConfig overriderConfig = taintConfig.get(overrider.concat(methodId));
+                if (overriderConfig == null) {
+                    // the summary of an analyzed class is complete, other classes are not analyzed by this scan
+                    if (isApplicationClass(overrider)) {
+                        pending = true;
+                    } else {
+                        absent = true;
+                    }
+                } else {
+                    configs.add(getConfigWithReplaceTags(overriderConfig, overrider, methodName));
+                }
+            }
+            outcome = absent ? "absent" : pending ? "pending" : getMergeFailure(configs);
+            if (outcome == null) {
+                mergedConfig = mergeConfigs(obj, configs);
+                outcome = "merged";
+            }
+        }
+        TaintDataflowEngine.writeMergedSummary(className + methodId, outcome);
+        return mergedConfig;
+    }
+
+    private static boolean isApplicationClass(String className) {
+        return Global.getAnalysisCache().getClassPath().getApplicationCodebaseEntries()
+                .containsKey(className.concat(".class"));
+    }
+
+    private static String getMergeFailure(List<TaintMethodConfig> configs) {
+        Set<Integer> mutableStackIndices = getMutableStackIndexSet(configs.get(0));
+        for (TaintMethodConfig config : configs) {
+            if (config.isConfigured()) {
+                // configured summaries are applied differently
+                return "configured";
+            }
+            if (!mutableStackIndices.equals(getMutableStackIndexSet(config))) {
+                // the output taint replaces the taint of the mutable arguments
+                return "mutables";
+            }
+        }
+        return null;
+    }
+
+    private static Set<Integer> getMutableStackIndexSet(TaintMethodConfig config) {
+        if (!config.hasMutableStackIndices()) {
+            return Collections.emptySet();
+        }
+        return new HashSet<Integer>(config.getMutableStackIndices());
+    }
+
+    /**
+     * Merges the derived summaries as the summary of a method running any of them
+     */
+    private TaintMethodConfig mergeConfigs(InvokeInstruction obj, List<TaintMethodConfig> configs) {
+        TaintMethodConfig first = configs.get(0);
+        TaintMethodConfig mergedConfig = new TaintMethodConfig(false);
+        mergedConfig.setTypeSignature(first.getTypeSignature());
+        for (Integer mutableStackIndex : getMutableStackIndexSet(first)) {
+            mergedConfig.addMutableStackIndex(mutableStackIndex);
+        }
+        boolean hasOutputTaint = false;
+        boolean processed = false;
+        boolean unprocessed = false;
+        Set<Integer> stackIndices = new TreeSet<Integer>();
+        for (TaintMethodConfig config : configs) {
+            hasOutputTaint |= config.getOutputTaint() != null;
+            if (config.isParametersOutputTaintsProcessed()) {
+                processed = true;
+                stackIndices.addAll(config.getParametersOutputTaints().keySet());
+            } else {
+                unprocessed = true;
+            }
+        }
+        if (hasOutputTaint) {
+            Taint outputTaint = null;
+            for (TaintMethodConfig config : configs) {
+                Taint taint = config.getOutputTaint();
+                // a call without output taint returns unknown taint
+                outputTaint = Taint.merge(outputTaint, taint != null ? taint : new Taint(Taint.State.UNKNOWN));
+            }
+            mergedConfig.setOuputTaint(outputTaint);
+        }
+        if (processed) {
+            // the mutable arguments of a call without processed argument taints are merged with unknown taint
+            Collection<Integer> signatureStackIndices = unprocessed
+                    ? getMutableStackIndices(obj.getSignature(cpg)) : Collections.<Integer>emptySet();
+            stackIndices.addAll(signatureStackIndices);
+            for (Integer stackIndex : stackIndices) {
+                Taint mergedTaint = null;
+                for (TaintMethodConfig config : configs) {
+                    Taint taint = null;
+                    if (config.isParametersOutputTaintsProcessed()) {
+                        taint = config.getParametersOutputTaints().get(stackIndex);
+                    } else if (signatureStackIndices.contains(stackIndex)) {
+                        taint = new Taint(Taint.State.UNKNOWN);
+                        taint.addParameter(stackIndex);
+                        taint.setNonParametricState(Taint.State.UNKNOWN);
+                    }
+                    if (taint == null) {
+                        // the argument keeps its taint
+                        taint = new Taint(Taint.State.UNKNOWN);
+                        taint.addParameter(stackIndex);
+                    }
+                    mergedTaint = Taint.merge(mergedTaint, taint);
+                }
+                mergedConfig.setParameterOutputTaint(stackIndex, mergedTaint);
+            }
+            mergedConfig.setParametersOutputTaintsProcessed(true);
+        }
+        return mergedConfig;
     }
 
     /**

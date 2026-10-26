@@ -362,8 +362,30 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
      * @param overriders known subtypes declaring the method, null if not relevant
      * @param resolved false if the subtypes are not known
      */
-    public static synchronized void writeDistrustedSummary(String kind, String methodName, Set<String> overriders,
+    public static void writeDistrustedSummary(String kind, String methodName, Set<String> overriders,
             boolean resolved) {
+        StringBuilder line = new StringBuilder(kind).append('\t').append(methodName);
+        if (!resolved) {
+            line.append("\t?");
+        } else if (overriders != null) {
+            line.append('\t').append(overriders.size()).append('\t')
+                    .append(overriders.stream().limit(10).collect(Collectors.joining(",")));
+        }
+        writeDistrustLine(line.toString());
+    }
+
+    /**
+     * Writes the outcome of merging the derived summary with the summaries of the overriding methods once, if
+     * enabled
+     *
+     * @param methodName slashed class name with the method id
+     * @param outcome merged, or the reason the summaries were not merged
+     */
+    public static void writeMergedSummary(String methodName, String outcome) {
+        writeDistrustLine("merge\t" + methodName + '\t' + outcome);
+    }
+
+    private static synchronized void writeDistrustLine(String line) {
         String fileName = CONFIG.getTaintDistrustDerivedFile();
         if (fileName == null || fileName.isEmpty()) {
             return;
@@ -378,17 +400,10 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
                 distrustWriter = new BufferedWriter(new OutputStreamWriter(
                         new FileOutputStream(fileName), StandardCharsets.UTF_8));
             }
-            if (!distrustedSummaries.add(kind + ' ' + methodName)) {
+            if (!distrustedSummaries.add(line)) {
                 return;
             }
-            distrustWriter.append(kind).append('\t').append(methodName);
-            if (!resolved) {
-                distrustWriter.append("\t?");
-            } else if (overriders != null) {
-                distrustWriter.append('\t').append(String.valueOf(overriders.size())).append('\t')
-                        .append(overriders.stream().limit(10).collect(Collectors.joining(",")));
-            }
-            distrustWriter.append('\n');
+            distrustWriter.append(line).append('\n');
             distrustWriter.flush();
         } catch (IOException ex) {
             AnalysisContext.logError("Cannot write distrusted derived summaries", ex);

@@ -48,7 +48,12 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
                 getClassFilePath(PACKAGE + "DistrustLeaf"),
                 getClassFilePath(PACKAGE + "DistrustDefault"),
                 getClassFilePath(PACKAGE + "DistrustDefaultImpl"),
-                getClassFilePath(PACKAGE + "DistrustHolder")
+                getClassFilePath(PACKAGE + "DistrustHolder"),
+                getClassFilePath(PACKAGE + "DistrustMergeSamples"),
+                getClassFilePath(PACKAGE + "DistrustSafeBase"),
+                getClassFilePath(PACKAGE + "DistrustSafeOverrider"),
+                getClassFilePath(PACKAGE + "DistrustPendingBase"),
+                getClassFilePath(PACKAGE + "DistrustPendingOverrider")
         };
     }
 
@@ -115,6 +120,66 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
             assertTrue(lines.contains("constructor\t" + PACKAGE + "DistrustHolder.<init>(Ljava/lang/String;)V"),
                     lines.toString());
             assertEquals(lines.size(), new HashSet<String>(lines).size());
+        } finally {
+            FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(null);
+            distrustFile.delete();
+        }
+    }
+
+    @Test
+    public void mergedOverridersSummaryIsApplied() throws Exception {
+        EasyBugReporter reporter = spy(new SecurityReporter());
+        analyzeDistrusting("override", getFiles(), reporter);
+
+        for (String method : new String[] {"mergedCommand", "mergedAppendCommand"}) {
+            verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                    .inClass("DistrustMergeSamples").inMethod(method).build());
+        }
+
+        reporter = spy(new SecurityReporter());
+        analyzeDistrusting("merge", getFiles(), reporter);
+
+        //Every implementation in the analyzed code is safe
+        for (String method : new String[] {"mergedCommand", "mergedAppendCommand"}) {
+            verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                    .inClass("DistrustMergeSamples").inMethod(method).build());
+        }
+        //An implementation is unknown or not analyzed yet
+        for (String method : new String[] {"mergedUnknownCommand", "pendingCommand"}) {
+            verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                    .inClass("DistrustMergeSamples").inMethod(method).build());
+        }
+    }
+
+    @Test
+    public void cappedOverridersSummaryIsDistrusted() throws Exception {
+        FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedMaxMerged(0);
+        try {
+            EasyBugReporter reporter = spy(new SecurityReporter());
+            analyzeDistrusting("merge", getFiles(), reporter);
+
+            verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                    .inClass("DistrustMergeSamples").inMethod("mergedCommand").build());
+        } finally {
+            FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedMaxMerged(16);
+        }
+    }
+
+    @Test
+    public void mergedSummariesAreWritten() throws Exception {
+        File distrustFile = File.createTempFile("distrusted-derived", ".txt");
+        FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(distrustFile.getAbsolutePath());
+        try {
+            EasyBugReporter reporter = spy(new SecurityReporter());
+            analyzeDistrusting("merge", getFiles(), reporter);
+
+            List<String> lines = Files.readAllLines(distrustFile.toPath(), StandardCharsets.UTF_8);
+            assertTrue(lines.contains("merge\t" + PACKAGE + "DistrustSafeBase.command()Ljava/lang/String;\tmerged"),
+                    lines.toString());
+            assertTrue(lines.contains("merge\t" + PACKAGE + "DistrustSafeBase.append(Ljava/lang/StringBuilder;)V"
+                    + "\tmerged"), lines.toString());
+            assertTrue(lines.contains("merge\t" + PACKAGE + "DistrustPendingBase.command()Ljava/lang/String;"
+                    + "\tpending"), lines.toString());
         } finally {
             FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(null);
             distrustFile.delete();
