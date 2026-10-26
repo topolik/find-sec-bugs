@@ -162,6 +162,19 @@ public class TaintDerivedImportTest extends BaseDetectorTest {
     }
 
     @Test
+    public void importDoesNotReportMissingClasses() throws Exception {
+        String[] files = {
+                getClassFilePath("testcode/taint/derivedimport/DerivedImportSamples")
+        };
+
+        EasyBugReporter reporter = spy(new SecurityReporter());
+        analyzeWithImport(files, reporter, "testcode/taint/derivedimport/DerivedImportMissing.get()Ljava/lang/String;:SAFE");
+
+        //Summaries of the classes outside the classpath are common in a shared feed
+        verify(reporter, never()).reportMissingClass("testcode.taint.derivedimport.DerivedImportMissing");
+    }
+
+    @Test
     public void importFillsExcludedCustomKey() throws Exception {
         URL configUrl = this.getClass().getResource("/com/h3xstream/findsecbugs/taintanalysis/CustomConfig.txt");
         File configFile = new File(configUrl.toURI());

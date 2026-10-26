@@ -24,6 +24,7 @@ import edu.umd.cs.findbugs.ba.AnalysisContext;
 import edu.umd.cs.findbugs.ba.CFG;
 import edu.umd.cs.findbugs.ba.DepthFirstSearch;
 import edu.umd.cs.findbugs.classfile.CheckedAnalysisException;
+import edu.umd.cs.findbugs.classfile.Global;
 import edu.umd.cs.findbugs.classfile.IAnalysisCache;
 import edu.umd.cs.findbugs.classfile.IMethodAnalysisEngine;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
@@ -240,13 +241,14 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         if (importConfigFile == null || importConfigFile.isEmpty()) {
             return;
         }
-        final AnalysisContext analysisContext = AnalysisContext.currentAnalysisContext();
+        //Looking the classes up in the class hierarchy would report the classes of the other scans as missing
+        final Set<String> applicationResources = Global.getAnalysisCache().getClassPath()
+                .getApplicationCodebaseEntries().keySet();
         for (String path : importConfigFile.split(File.pathSeparator)) {
             try (InputStream stream = path.endsWith(".gz")
                     ? new GZIPInputStream(new FileInputStream(path))
                     : new FileInputStream(path)) {
-                taintConfig.loadDerived(stream, className -> analysisContext != null
-                        && analysisContext.isApplicationClass(className.replace('/', '.')));
+                taintConfig.loadDerived(stream, className -> applicationResources.contains(className + ".class"));
             } catch (IOException ex) {
                 throw new RuntimeException("Cannot import derived taint config from " + path, ex);
             }
