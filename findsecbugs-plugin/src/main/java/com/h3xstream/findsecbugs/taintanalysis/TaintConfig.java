@@ -91,6 +91,7 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
     private final Map<String, Set<String>> overridersCache = new ConcurrentHashMap<String, Set<String>>();
     private static final Set<String> UNRESOLVED_OVERRIDERS = Collections.unmodifiableSet(new HashSet<String>());
     private boolean distrustingDerivedOverrides;
+    private boolean mergingDerivedOverrides;
     private boolean distrustingDerivedConstructors;
 
     private transient TaintConfigUsage usage;
@@ -569,10 +570,11 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
     /**
      * Sets the kinds of derived summaries not applied to the calls
      *
-     * @param kinds kinds separated by commas, {@code override} and {@code constructor}
+     * @param kinds kinds separated by commas, {@code override}, {@code merge} and {@code constructor}
      */
     public void setDistrustedDerived(String kinds) {
         distrustingDerivedOverrides = false;
+        mergingDerivedOverrides = false;
         distrustingDerivedConstructors = false;
         if (kinds == null) {
             return;
@@ -581,6 +583,9 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
             kind = kind.trim();
             if (kind.equals("override")) {
                 distrustingDerivedOverrides = true;
+            } else if (kind.equals("merge")) {
+                distrustingDerivedOverrides = true;
+                mergingDerivedOverrides = true;
             } else if (kind.equals("constructor")) {
                 distrustingDerivedConstructors = true;
             } else if (!kind.isEmpty()) {
@@ -595,6 +600,14 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
      */
     public boolean isDistrustingDerivedOverrides() {
         return distrustingDerivedOverrides;
+    }
+
+    /**
+     * Whether the derived summary of a virtual method declared by a known subtype of the receiver class
+     * is merged with the summaries of the subtypes, instead of not being applied
+     */
+    public boolean isMergingDerivedOverrides() {
+        return mergingDerivedOverrides;
     }
 
     /**
