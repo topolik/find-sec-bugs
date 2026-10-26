@@ -48,6 +48,7 @@ public class FindSecBugsGlobalConfig {
     private String taintDistrustDerived;
     private String taintDistrustDerivedFile;
     private int taintDistrustDerivedMaxMerged;
+    private String taintOverridersFile;
 
     protected FindSecBugsGlobalConfig() {
         debugOutputTaintConfigs = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.outputconfigs", Boolean.FALSE.toString()));
@@ -65,6 +66,7 @@ public class FindSecBugsGlobalConfig {
         taintDistrustDerived = loadFromSystem("findsecbugs.taint.distrustderived", null);
         taintDistrustDerivedFile = loadFromSystem("findsecbugs.taint.distrustderivedfile", null);
         taintDistrustDerivedMaxMerged = Integer.parseInt(loadFromSystem("findsecbugs.taint.distrustderivedmaxmerged", "16"));
+        taintOverridersFile = loadFromSystem("findsecbugs.taint.overridersfile", null);
     }
 
     public String loadFromSystem(String key, String defaultValue) {
@@ -226,7 +228,8 @@ public class FindSecBugsGlobalConfig {
     /**
      * Kinds of derived summaries not applied to the calls, separated by commas: {@code override} for
      * the methods declared by a known subtype of the receiver class, {@code merge} to apply the summary
-     * merged with the summaries of the subtypes instead, {@code constructor} for the constructed object
+     * merged with the summaries of the subtypes instead, {@code implementors} to apply the summaries
+     * of the subtypes merged to the abstract methods, {@code constructor} for the constructed object
      */
     public String getTaintDistrustDerived() {
         return taintDistrustDerived;
@@ -256,6 +259,18 @@ public class FindSecBugsGlobalConfig {
 
     public void setTaintDistrustDerivedMaxMerged(int taintDistrustDerivedMaxMerged) {
         this.taintDistrustDerivedMaxMerged = taintDistrustDerivedMaxMerged;
+    }
+
+    /**
+     * Files listing the subtypes declaring the methods of the classes outside the analyzed code,
+     * separated by the path separator, see {@link com.h3xstream.findsecbugs.taintanalysis.TaintConfig#loadOverriders}
+     */
+    public String getTaintOverridersFile() {
+        return taintOverridersFile;
+    }
+
+    public void setTaintOverridersFile(String taintOverridersFile) {
+        this.taintOverridersFile = taintOverridersFile;
     }
 
     public boolean isReportPotentialXssWrongContext() {

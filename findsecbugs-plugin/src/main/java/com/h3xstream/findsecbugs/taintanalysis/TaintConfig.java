@@ -90,8 +90,21 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
      */
     private final Map<String, Set<String>> overridersCache = new ConcurrentHashMap<String, Set<String>>();
     private static final Set<String> UNRESOLVED_OVERRIDERS = Collections.unmodifiableSet(new HashSet<String>());
+    private static final Set<String> NOT_OVERRIDABLE = Collections.unmodifiableSet(new HashSet<String>());
+    /**
+     * Classes declaring the method invoked at runtime known by a class hierarchy analysis of the classes
+     * outside the analyzed code, keyed by the receiver class name and method id
+     */
+    private final Map<String, String[]> externalOverriders = new HashMap<String, String[]>();
+    private static final String[] UNRESOLVED_EXTERNAL_OVERRIDERS = new String[0];
+    private static final Set<String> OBJECT_METHOD_IDS = new HashSet<String>(Arrays.asList(
+            ".equals(Ljava/lang/Object;)Z", ".hashCode()I", ".toString()Ljava/lang/String;"));
+    private final Map<String, Boolean> functionalMethodCache = new ConcurrentHashMap<String, Boolean>();
+    private final Map<String, Byte> abstractMethodCache = new ConcurrentHashMap<String, Byte>();
+    private static final byte UNKNOWN_ABSTRACT = -1;
     private boolean distrustingDerivedOverrides;
     private boolean mergingDerivedOverrides;
+    private boolean mergingImplementors;
     private boolean distrustingDerivedConstructors;
 
     private transient TaintConfigUsage usage;
@@ -570,11 +583,13 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
     /**
      * Sets the kinds of derived summaries not applied to the calls
      *
-     * @param kinds kinds separated by commas, {@code override}, {@code merge} and {@code constructor}
+     * @param kinds kinds separated by commas, {@code override}, {@code merge}, {@code implementors} and
+     * {@code constructor}
      */
     public void setDistrustedDerived(String kinds) {
         distrustingDerivedOverrides = false;
         mergingDerivedOverrides = false;
+        mergingImplementors = false;
         distrustingDerivedConstructors = false;
         if (kinds == null) {
             return;
@@ -586,6 +601,8 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
             } else if (kind.equals("merge")) {
                 distrustingDerivedOverrides = true;
                 mergingDerivedOverrides = true;
+            } else if (kind.equals("implementors")) {
+                mergingImplementors = true;
             } else if (kind.equals("constructor")) {
                 distrustingDerivedConstructors = true;
             } else if (!kind.isEmpty()) {
@@ -611,6 +628,14 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
     }
 
     /**
+     * Whether the call of an abstract method without a summary gets the merged summaries of the methods
+     * implementing it
+     */
+    public boolean isMergingImplementors() {
+        return mergingImplementors;
+    }
+
+    /**
      * Whether the derived summary of a constructor is not applied to the constructed object, the summary
      * does not describe the receiver
      */
@@ -619,21 +644,220 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
     }
 
     /**
-     * Returns the known subtypes of the class declaring a non abstract method with the same name and
-     * signature, without reporting missing classes
+     * Loads the classes declaring the methods invoked at runtime known by a class hierarchy analysis
+     * of the classes outside the analyzed code, the lines are {@code <receiver class><method id>\t<classes>}
+     * with the slashed class names separated by commas, or {@code ?} if the classes are not known
+     *
+     * @param input stream of the lines
+     */
+    public void loadOverriders(InputStream input) throws IOException {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8));
+        Map<String, String> classNames = new HashMap<String, String>();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            int index = line.indexOf('\t');
+            if (index < 0) {
+                continue;
+            }
+            String value = line.substring(index + 1);
+            String[] overriders = UNRESOLVED_EXTERNAL_OVERRIDERS;
+            if (!value.equals("?")) {
+                overriders = value.split(",");
+                for (int i = 0; i < overriders.length; i++) {
+                    String className = classNames.putIfAbsent(overriders[i], overriders[i]);
+                    if (className != null) {
+                        overriders[i] = className;
+                    }
+                }
+            }
+            externalOverriders.put(line.substring(0, index), overriders);
+        }
+        overridersCache.clear();
+    }
+
+    public int getExternalOverriderCount() {
+        return externalOverriders.size();
+    }
+
+    /**
+     * Returns the classes declaring the method invoked at runtime on the known subtypes of the class,
+     * other than the method invoked on the class, without reporting missing classes
      *
      * @param className slashed name of the receiver class
      * @param methodId method name with signature, e.g. .getName()Ljava/lang/String;
-     * @return slashed names of the subtypes, null if the subtypes of the class are not known
+     * @return slashed names of the classes, null if the subtypes of the class are not known
      */
     public Set<String> getOverriders(String className, String methodId) {
         String key = className.concat(methodId);
         Set<String> overriders = overridersCache.get(key);
         if (overriders == null) {
             overriders = findOverriders(className, methodId);
+            String[] external = externalOverriders.get(key);
+            if (external == UNRESOLVED_EXTERNAL_OVERRIDERS && overriders != NOT_OVERRIDABLE) {
+                overriders = UNRESOLVED_OVERRIDERS;
+            } else if (external != null && overriders != UNRESOLVED_OVERRIDERS && overriders != NOT_OVERRIDABLE) {
+                // the subtypes outside the analyzed code are not known to the class hierarchy
+                Set<String> union = new TreeSet<String>(overriders);
+                union.addAll(Arrays.asList(external));
+                union.remove(className);
+                overriders = Collections.unmodifiableSet(union);
+            }
             overridersCache.put(key, overriders);
         }
         return overriders == UNRESOLVED_OVERRIDERS ? null : overriders;
+    }
+
+    /**
+     * Whether a method is abstract for the class, no class on the superclass chain and no interface
+     * declares it non abstract, without reporting missing classes
+     *
+     * @return null if a class is not known
+     */
+    public Boolean isAbstractMethodQuietly(String className, String methodId) {
+        if (AnalysisContext.currentAnalysisContext() == null || className.startsWith("[")) {
+            return null;
+        }
+        String key = className.concat(methodId);
+        Byte cached = abstractMethodCache.get(key);
+        if (cached == null) {
+            Boolean result = findAbstractMethod(className, methodId);
+            cached = Byte.valueOf(result == null ? UNKNOWN_ABSTRACT : result.booleanValue() ? (byte) 1 : (byte) 0);
+            abstractMethodCache.put(key, cached);
+        }
+        return cached.byteValue() == UNKNOWN_ABSTRACT ? null : Boolean.valueOf(cached.byteValue() == 1);
+    }
+
+    private static Boolean findAbstractMethod(String className, String methodId) {
+        XFactory xFactory = AnalysisContext.currentXFactory();
+        XClass receiverClass = xFactory.getXClass(DescriptorFactory.createClassDescriptor(className));
+        if (receiverClass == null) {
+            return null;
+        }
+        int signatureIndex = methodId.indexOf('(');
+        String methodName = methodId.substring(1, signatureIndex);
+        String signature = methodId.substring(signatureIndex);
+        if (!receiverClass.isInterface() && !receiverClass.isAbstract()) {
+            return Boolean.FALSE;
+        }
+        List<XClass> interfaces = new ArrayList<XClass>();
+        for (XClass xClass = receiverClass; xClass != null; ) {
+            XMethod method = xClass.findMethod(methodName, signature, false);
+            if (method != null) {
+                return Boolean.valueOf(method.isAbstract());
+            }
+            interfaces.add(xClass);
+            ClassDescriptor superclass = xClass.getSuperclassDescriptor();
+            if (superclass == null) {
+                break;
+            }
+            xClass = xFactory.getXClass(superclass);
+            if (xClass == null) {
+                return null;
+            }
+        }
+        // a default method
+        Set<ClassDescriptor> visited = new HashSet<ClassDescriptor>();
+        while (!interfaces.isEmpty()) {
+            XClass xClass = interfaces.remove(interfaces.size() - 1);
+            for (ClassDescriptor descriptor : xClass.getInterfaceDescriptorList()) {
+                if (!visited.add(descriptor)) {
+                    continue;
+                }
+                XClass xInterface = xFactory.getXClass(descriptor);
+                if (xInterface == null) {
+                    return null;
+                }
+                XMethod method = xInterface.findMethod(methodName, signature, false);
+                if (method != null && !method.isAbstract()) {
+                    return Boolean.FALSE;
+                }
+                interfaces.add(xInterface);
+            }
+        }
+        return Boolean.TRUE;
+    }
+
+    /**
+     * Whether a lambda expression may implement the method, the class or a known subtype is a functional
+     * interface with an abstract method of the same name, without reporting missing classes
+     */
+    public boolean isFunctionalMethodQuietly(String className, String methodId) {
+        String key = className.concat(methodId);
+        Boolean functional = functionalMethodCache.get(key);
+        if (functional == null) {
+            functional = Boolean.valueOf(findFunctionalMethod(className, methodId));
+            functionalMethodCache.put(key, functional);
+        }
+        return functional.booleanValue();
+    }
+
+    private static boolean findFunctionalMethod(String className, String methodId) {
+        AnalysisContext analysisContext = AnalysisContext.currentAnalysisContext();
+        if (analysisContext == null) {
+            return true;
+        }
+        XFactory xFactory = AnalysisContext.currentXFactory();
+        ClassDescriptor classDescriptor = DescriptorFactory.createClassDescriptor(className);
+        XClass receiverClass = xFactory.getXClass(classDescriptor);
+        if (receiverClass == null) {
+            return true;
+        }
+        if (!receiverClass.isInterface()) {
+            return false;
+        }
+        String methodName = methodId.substring(1, methodId.indexOf('('));
+        Set<ClassDescriptor> subtypes;
+        try {
+            subtypes = analysisContext.getSubtypes2().getSubtypes(classDescriptor);
+        } catch (ClassNotFoundException ex) {
+            return true;
+        }
+        for (ClassDescriptor subtype : subtypes) {
+            XClass xClass = subtype.equals(classDescriptor) ? receiverClass : xFactory.getXClass(subtype);
+            if (xClass != null && xClass.isInterface()) {
+                String functionalMethodName = getFunctionalMethodName(xFactory, xClass);
+                if (functionalMethodName == null || functionalMethodName.equals(methodName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns the name of the abstract methods of a functional interface, the methods with the same name
+     * are counted as one method, they may override each other in the generic interfaces
+     *
+     * @return name of the method, empty if the interface is not functional, null if not known
+     */
+    private static String getFunctionalMethodName(XFactory xFactory, XClass xInterface) {
+        Set<String> abstractNames = new HashSet<String>();
+        Set<String> defaultNames = new HashSet<String>();
+        List<XClass> interfaces = new ArrayList<XClass>();
+        interfaces.add(xInterface);
+        Set<ClassDescriptor> visited = new HashSet<ClassDescriptor>();
+        while (!interfaces.isEmpty()) {
+            XClass xClass = interfaces.remove(interfaces.size() - 1);
+            for (XMethod method : xClass.getXMethods()) {
+                if (method.isStatic() || method.isPrivate()
+                        || OBJECT_METHOD_IDS.contains("." + method.getName() + method.getSignature())) {
+                    continue;
+                }
+                (method.isAbstract() ? abstractNames : defaultNames).add(method.getName());
+            }
+            for (ClassDescriptor descriptor : xClass.getInterfaceDescriptorList()) {
+                if (visited.add(descriptor)) {
+                    XClass xSuperInterface = xFactory.getXClass(descriptor);
+                    if (xSuperInterface == null) {
+                        return null;
+                    }
+                    interfaces.add(xSuperInterface);
+                }
+            }
+        }
+        // a default method may implement the abstract methods of the super interfaces
+        abstractNames.removeAll(defaultNames);
+        return abstractNames.size() == 1 ? abstractNames.iterator().next() : "";
     }
 
     private static Set<String> findOverriders(String className, String methodId) {
@@ -653,7 +877,7 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
         String signature = methodId.substring(signatureIndex);
         XMethod receiverMethod = receiverClass.findMethod(methodName, signature, false);
         if (receiverClass.isFinal() || receiverMethod != null && (receiverMethod.isFinal() || receiverMethod.isPrivate())) {
-            return Collections.emptySet();
+            return NOT_OVERRIDABLE;
         }
         Set<ClassDescriptor> subtypes;
         try {
@@ -672,14 +896,101 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
             }
             // bridge methods included, a generic method is overridden under the erased signature by a bridge
             XMethod method = xClass.findMethod(methodName, signature, false);
-            if (method != null && !method.isAbstract() && !method.isPrivate()) {
-                overriders.add(subtype.getClassName());
+            if (method != null) {
+                if (!method.isAbstract() && !method.isPrivate()) {
+                    overriders.add(subtype.getClassName());
+                }
+            } else if (!xClass.isInterface() && !xClass.isAbstract()) {
+                // the method may be inherited from a superclass not being a subtype of the class
+                String inheritingClassName = findInheritingClassName(xFactory, xClass, classDescriptor, methodName,
+                        signature);
+                if (inheritingClassName == null) {
+                    return UNRESOLVED_OVERRIDERS;
+                }
+                if (!inheritingClassName.isEmpty()) {
+                    overriders.add(inheritingClassName);
+                }
             }
         }
         if (overriders.isEmpty()) {
             return Collections.emptySet();
         }
         return Collections.unmodifiableSet(overriders);
+    }
+
+    /**
+     * Returns the class declaring the method invoked on a class not declaring it, the first superclass
+     * declaring it, else the maximally specific super interface declaring it (JLS 8.4.8.4)
+     *
+     * @return slashed name of the class, empty if the method is the method invoked on the receiver class,
+     * abstract or ambiguous, null if a super type is not known
+     */
+    private static String findInheritingClassName(XFactory xFactory, XClass xClass, ClassDescriptor receiverClass,
+            String methodName, String signature) {
+        List<XClass> classes = new ArrayList<XClass>();
+        classes.add(xClass);
+        boolean inherited = false;
+        ClassDescriptor superclass = xClass.getSuperclassDescriptor();
+        while (superclass != null) {
+            inherited |= superclass.equals(receiverClass);
+            XClass xSuperclass = xFactory.getXClass(superclass);
+            if (xSuperclass == null) {
+                return null;
+            }
+            XMethod method = xSuperclass.findMethod(methodName, signature, false);
+            if (method != null && !method.isPrivate()) {
+                // the receiver class inherits the method too
+                return inherited || method.isAbstract() ? "" : superclass.getClassName();
+            }
+            classes.add(xSuperclass);
+            superclass = xSuperclass.getSuperclassDescriptor();
+        }
+        return findDefaultClassName(xFactory, classes, receiverClass, methodName, signature);
+    }
+
+    private static String findDefaultClassName(XFactory xFactory, List<XClass> classes, ClassDescriptor receiverClass,
+            String methodName, String signature) {
+        Map<ClassDescriptor, XClass> interfaces = new HashMap<ClassDescriptor, XClass>();
+        Map<ClassDescriptor, XMethod> declarations = new HashMap<ClassDescriptor, XMethod>();
+        while (!classes.isEmpty()) {
+            XClass xClass = classes.remove(classes.size() - 1);
+            for (ClassDescriptor descriptor : xClass.getInterfaceDescriptorList()) {
+                if (interfaces.containsKey(descriptor)) {
+                    continue;
+                }
+                XClass xInterface = xFactory.getXClass(descriptor);
+                if (xInterface == null) {
+                    return null;
+                }
+                interfaces.put(descriptor, xInterface);
+                XMethod method = xInterface.findMethod(methodName, signature, false);
+                if (method != null && !method.isPrivate()) {
+                    declarations.put(descriptor, method);
+                }
+                classes.add(xInterface);
+            }
+        }
+        // a declaration overrides the declarations of the super interfaces
+        Set<ClassDescriptor> overridden = new HashSet<ClassDescriptor>();
+        for (ClassDescriptor descriptor : declarations.keySet()) {
+            classes.add(interfaces.get(descriptor));
+            while (!classes.isEmpty()) {
+                for (ClassDescriptor superInterface : classes.remove(classes.size() - 1).getInterfaceDescriptorList()) {
+                    if (overridden.add(superInterface)) {
+                        classes.add(interfaces.get(superInterface));
+                    }
+                }
+            }
+        }
+        declarations.keySet().removeAll(overridden);
+        if (declarations.size() != 1) {
+            return "";
+        }
+        Map.Entry<ClassDescriptor, XMethod> declaration = declarations.entrySet().iterator().next();
+        if (declaration.getValue().isAbstract() || declaration.getKey().equals(receiverClass)) {
+            return "";
+        }
+        return declaration.getKey().getClassName();
     }
 
     /**

@@ -170,6 +170,24 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         if (distrustDerived != null && !distrustDerived.isEmpty()) {
             LOGGER.log(Level.INFO, "Derived summaries not applied: {0}", distrustDerived);
         }
+        String overridersFile = CONFIG.getTaintOverridersFile();
+        if (overridersFile != null && !overridersFile.isEmpty()) {
+            loadOverriders(overridersFile);
+        }
+    }
+
+    private void loadOverriders(String overridersFile) {
+        for (String path : overridersFile.split(File.pathSeparator)) {
+            try (InputStream stream = path.endsWith(".gz")
+                    ? new GZIPInputStream(new FileInputStream(path))
+                    : new FileInputStream(path)) {
+                taintConfig.loadOverriders(stream);
+            } catch (IOException ex) {
+                throw new RuntimeException("Cannot load overriders from " + path, ex);
+            }
+        }
+        LOGGER.log(Level.INFO, "Loaded the overriders of {0} methods from {1}",
+                new Object[] {String.valueOf(taintConfig.getExternalOverriderCount()), overridersFile});
     }
 
     public static void registerAdditionalVisitor(TaintFrameAdditionalVisitor visitor) {
@@ -375,14 +393,15 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     }
 
     /**
-     * Writes the outcome of merging the derived summary with the summaries of the overriding methods once, if
-     * enabled
+     * Writes the outcome of merging the summaries of the overriding methods once, if enabled
      *
+     * @param kind merge for a derived summary merged with the overriding methods, implementors for
+     * an abstract method
      * @param methodName slashed class name with the method id
      * @param outcome merged, or the reason the summaries were not merged
      */
-    public static void writeMergedSummary(String methodName, String outcome) {
-        writeDistrustLine("merge\t" + methodName + '\t' + outcome);
+    public static void writeMergedSummary(String kind, String methodName, String outcome) {
+        writeDistrustLine(kind + '\t' + methodName + '\t' + outcome);
     }
 
     private static synchronized void writeDistrustLine(String line) {

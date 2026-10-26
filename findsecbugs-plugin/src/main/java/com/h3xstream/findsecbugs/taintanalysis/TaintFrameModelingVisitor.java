@@ -736,7 +736,8 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                     TaintDataflowEngine.writeDistrustedSummary("override", className + methodId, overriders,
                             overriders != null);
                     if (overriders != null && taintConfig.isMergingDerivedOverrides()) {
-                        return getMergedOverridersConfig(obj, className, methodName, methodId, config, overriders);
+                        return getMergedOverridersConfig(obj, "merge", className, methodName, methodId, config,
+                                overriders);
                     }
                     return null;
                 }
@@ -746,25 +747,59 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         if (constructor) {
             return getDefaultConstructorConfig(obj, className, null);
         }
+        if ((obj instanceof INVOKEVIRTUAL || obj instanceof INVOKEINTERFACE) && taintConfig.isMergingImplementors()) {
+            return getMergedImplementorsConfig(obj, className, methodName, methodId);
+        }
         return null;
+    }
+
+    /**
+     * Merges the summaries of the methods implementing an abstract method, any of them may be invoked at runtime
+     *
+     * @return merged summary, null if the method is not abstract, the implementations are not known or
+     * their summaries cannot be merged
+     */
+    private TaintMethodConfig getMergedImplementorsConfig(InvokeInstruction obj, String className, String methodName,
+            String methodId) {
+        if (!Boolean.TRUE.equals(taintConfig.isAbstractMethodQuietly(className, methodId))) {
+            return null;
+        }
+        Set<String> overriders = null;
+        String outcome;
+        if (taintConfig.isFunctionalMethodQuietly(className, methodId)) {
+            // a lambda expression may implement the method
+            outcome = "functional";
+        } else {
+            overriders = taintConfig.getOverriders(className, methodId);
+            outcome = overriders == null ? "unresolved" : overriders.isEmpty() ? "none" : null;
+        }
+        if (outcome != null) {
+            TaintDataflowEngine.writeMergedSummary("implementors", className + methodId, outcome);
+            return null;
+        }
+        return getMergedOverridersConfig(obj, "implementors", className, methodName, methodId, null, overriders);
     }
 
     /**
      * Merges the derived summary with the summaries of the methods overriding it, any of the
      * implementations may be invoked at runtime
      *
+     * @param kind kind of the merge written with the outcome
+     * @param config derived summary of the method, null if abstract
      * @return merged summary, null if the summary of an overriding method is not known yet or the
      * summaries cannot be merged
      */
-    private TaintMethodConfig getMergedOverridersConfig(InvokeInstruction obj, String className, String methodName,
-            String methodId, TaintMethodConfig config, Set<String> overriders) {
+    private TaintMethodConfig getMergedOverridersConfig(InvokeInstruction obj, String kind, String className,
+            String methodName, String methodId, TaintMethodConfig config, Set<String> overriders) {
         TaintMethodConfig mergedConfig = null;
         String outcome;
         if (overriders.size() > FindSecBugsGlobalConfig.getInstance().getTaintDistrustDerivedMaxMerged()) {
             outcome = "capped";
         } else {
             List<TaintMethodConfig> configs = new ArrayList<TaintMethodConfig>();
-            configs.add(config);
+            if (config != null) {
+                configs.add(config);
+            }
             boolean pending = false;
             boolean absent = false;
             for (String overrider : overriders) {
@@ -783,10 +818,13 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             outcome = absent ? "absent" : pending ? "pending" : getMergeFailure(configs);
             if (outcome == null) {
                 mergedConfig = mergeConfigs(obj, configs);
+                if (config == null) {
+                    mergedConfig.setTypeSignature(className + methodId);
+                }
                 outcome = "merged";
             }
         }
-        TaintDataflowEngine.writeMergedSummary(className + methodId, outcome);
+        TaintDataflowEngine.writeMergedSummary(kind, className + methodId, outcome);
         return mergedConfig;
     }
 

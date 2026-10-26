@@ -25,12 +25,14 @@ import org.mockito.ArgumentCaptor;
 import org.testng.annotations.Test;
 
 import java.io.File;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.zip.GZIPOutputStream;
 
 import static org.mockito.Mockito.*;
 import static org.testng.Assert.assertEquals;
@@ -53,7 +55,18 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
                 getClassFilePath(PACKAGE + "DistrustSafeBase"),
                 getClassFilePath(PACKAGE + "DistrustSafeOverrider"),
                 getClassFilePath(PACKAGE + "DistrustPendingBase"),
-                getClassFilePath(PACKAGE + "DistrustPendingOverrider")
+                getClassFilePath(PACKAGE + "DistrustPendingOverrider"),
+                getClassFilePath(PACKAGE + "DistrustImplementorsSamples"),
+                getClassFilePath(PACKAGE + "DistrustSource"),
+                getClassFilePath(PACKAGE + "DistrustSourceImpl"),
+                getClassFilePath(PACKAGE + "DistrustCommand"),
+                getClassFilePath(PACKAGE + "DistrustCommandSource"),
+                getClassFilePath(PACKAGE + "DistrustFunctionalSource"),
+                getClassFilePath(PACKAGE + "DistrustEqualsSource"),
+                getClassFilePath(PACKAGE + "DistrustFunctionalSourceImpl"),
+                getClassFilePath(PACKAGE + "DistrustAbstractSource"),
+                getClassFilePath(PACKAGE + "DistrustDefaultSource"),
+                getClassFilePath(PACKAGE + "DistrustDefaultSourceImpl")
         };
     }
 
@@ -187,6 +200,122 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
     }
 
     @Test
+    public void mergedImplementorsSummaryIsApplied() throws Exception {
+        EasyBugReporter reporter = spy(new SecurityReporter());
+        analyze(getFiles(), reporter);
+
+        for (String method : new String[] {"implementorsCommand", "abstractCommand"}) {
+            verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                    .inClass("DistrustImplementorsSamples").inMethod(method).build());
+        }
+
+        reporter = spy(new SecurityReporter());
+        analyzeDistrusting("implementors", getFiles(), reporter);
+
+        //Every implementation in the analyzed code is safe
+        for (String method : new String[] {"implementorsCommand", "abstractCommand"}) {
+            verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                    .inClass("DistrustImplementorsSamples").inMethod(method).build());
+        }
+        //An inherited implementation is unknown or a lambda expression may implement the method
+        for (String method : new String[] {"implementorsAppendCommand", "functionalCommand", "equalsCommand"}) {
+            verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                    .inClass("DistrustImplementorsSamples").inMethod(method).build());
+        }
+    }
+
+    @Test
+    public void mergedImplementorsSummariesAreWritten() throws Exception {
+        File distrustFile = File.createTempFile("distrusted-derived", ".txt");
+        FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(distrustFile.getAbsolutePath());
+        try {
+            EasyBugReporter reporter = spy(new SecurityReporter());
+            analyzeDistrusting("implementors", getFiles(), reporter);
+
+            List<String> lines = Files.readAllLines(distrustFile.toPath(), StandardCharsets.UTF_8);
+            for (String line : new String[] {
+                    "DistrustSource.command()Ljava/lang/String;\tmerged",
+                    "DistrustSource.append(Ljava/lang/StringBuilder;)V\tmerged",
+                    "DistrustAbstractSource.command()Ljava/lang/String;\tmerged",
+                    "DistrustFunctionalSource.command()Ljava/lang/String;\tfunctional",
+                    "DistrustEqualsSource.command()Ljava/lang/String;\tfunctional"}) {
+                assertTrue(lines.contains("implementors\t" + PACKAGE + line), lines.toString());
+            }
+            assertEquals(lines.size(), new HashSet<String>(lines).size());
+        } finally {
+            FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(null);
+            distrustFile.delete();
+        }
+    }
+
+    @Test
+    public void externalOverridersAreMerged() throws Exception {
+        File distrustFile = File.createTempFile("distrusted-derived", ".txt");
+        File overridersFile = createOverridersFile(
+                PACKAGE + "DistrustSource.command()Ljava/lang/String;\t" + PACKAGE + "DistrustMissing",
+                PACKAGE + "DistrustAbstractSource.command()Ljava/lang/String;\t?",
+                PACKAGE + "DistrustBase.finalCommand()Ljava/lang/String;\t?");
+        FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(distrustFile.getAbsolutePath());
+        FindSecBugsGlobalConfig.getInstance().setTaintOverridersFile(overridersFile.getAbsolutePath());
+        try {
+            EasyBugReporter reporter = spy(new SecurityReporter());
+            analyzeDistrusting("override,implementors", getFiles(), reporter);
+
+            //The implementation outside the analyzed code is not known
+            for (String method : new String[] {"implementorsCommand", "abstractCommand"}) {
+                verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                        .inClass("DistrustImplementorsSamples").inMethod(method).build());
+            }
+            //The final method is not overridden
+            verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                    .inClass("DistrustSamples").inMethod("finalCommand").build());
+
+            List<String> lines = Files.readAllLines(distrustFile.toPath(), StandardCharsets.UTF_8);
+            assertTrue(lines.contains("implementors\t" + PACKAGE + "DistrustSource.command()Ljava/lang/String;"
+                    + "\tabsent"), lines.toString());
+            assertTrue(lines.contains("implementors\t" + PACKAGE + "DistrustAbstractSource.command()Ljava/lang/String;"
+                    + "\tunresolved"), lines.toString());
+        } finally {
+            FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(null);
+            FindSecBugsGlobalConfig.getInstance().setTaintOverridersFile(null);
+            distrustFile.delete();
+            overridersFile.delete();
+        }
+    }
+
+    @Test
+    public void importedOverriderSummaryIsMerged() throws Exception {
+        File distrustFile = File.createTempFile("distrusted-derived", ".txt");
+        File importFile = File.createTempFile("derived-config", ".txt");
+        Files.write(importFile.toPath(), Collections.singletonList(
+                PACKAGE + "DistrustMissing.command()Ljava/lang/String;:SAFE"), StandardCharsets.UTF_8);
+        File overridersFile = createOverridersFile(
+                PACKAGE + "DistrustSource.command()Ljava/lang/String;\t" + PACKAGE + "DistrustMissing");
+        FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(distrustFile.getAbsolutePath());
+        FindSecBugsGlobalConfig.getInstance().setTaintImportConfigFile(importFile.getAbsolutePath());
+        FindSecBugsGlobalConfig.getInstance().setTaintOverridersFile(overridersFile.getAbsolutePath());
+        try {
+            EasyBugReporter reporter = spy(new SecurityReporter());
+            analyzeDistrusting("implementors", getFiles(), reporter);
+
+            //The imported summary of the implementation outside the analyzed code is merged
+            verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                    .inClass("DistrustImplementorsSamples").inMethod("implementorsCommand").build());
+
+            List<String> lines = Files.readAllLines(distrustFile.toPath(), StandardCharsets.UTF_8);
+            assertTrue(lines.contains("implementors\t" + PACKAGE + "DistrustSource.command()Ljava/lang/String;"
+                    + "\tmerged"), lines.toString());
+        } finally {
+            FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(null);
+            FindSecBugsGlobalConfig.getInstance().setTaintImportConfigFile(null);
+            FindSecBugsGlobalConfig.getInstance().setTaintOverridersFile(null);
+            distrustFile.delete();
+            importFile.delete();
+            overridersFile.delete();
+        }
+    }
+
+    @Test
     public void missingReceiverClassIsNotReported() throws Exception {
         String[] files = {
                 getClassFilePath("testcode/taint/derivedimport/DerivedImportSamples")
@@ -212,6 +341,17 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
             FindSecBugsGlobalConfig.getInstance().setTaintImportConfigFile(null);
             importFile.delete();
         }
+    }
+
+    private File createOverridersFile(String... lines) throws Exception {
+        File overridersFile = File.createTempFile("overriders", ".txt.gz");
+        OutputStream output = new GZIPOutputStream(Files.newOutputStream(overridersFile.toPath()));
+        try {
+            output.write(String.join("\n", lines).getBytes(StandardCharsets.UTF_8));
+        } finally {
+            output.close();
+        }
+        return overridersFile;
     }
 
     private Set<ClassDescriptor> getMissingClasses(EasyBugReporter reporter) {
