@@ -20,6 +20,7 @@ package com.h3xstream.findsecbugs.taintanalysis;
 import com.h3xstream.findbugs.test.BaseDetectorTest;
 import com.h3xstream.findbugs.test.EasyBugReporter;
 import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
+import edu.umd.cs.findbugs.classfile.DescriptorFactory;
 import org.testng.annotations.Test;
 
 import java.io.ByteArrayInputStream;
@@ -186,7 +187,8 @@ public class TaintDerivedImportTest extends BaseDetectorTest {
         analyzeWithImport(files, reporter, "testcode/taint/derivedimport/DerivedImportMissing.get()Ljava/lang/String;:SAFE");
 
         //Summaries of the classes outside the classpath are common in a shared feed
-        verify(reporter, never()).reportMissingClass("testcode.taint.derivedimport.DerivedImportMissing");
+        verify(reporter, never()).reportMissingClass(
+                DescriptorFactory.createClassDescriptor("testcode/taint/derivedimport/DerivedImportMissing"));
     }
 
     @Test
