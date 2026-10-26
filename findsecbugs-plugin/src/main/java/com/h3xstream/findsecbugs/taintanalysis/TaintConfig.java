@@ -21,6 +21,11 @@ import com.h3xstream.findsecbugs.BCELUtil;
 import edu.umd.cs.findbugs.ba.AnalysisContext;
 import edu.umd.cs.findbugs.ba.DataflowAnalysisException;
 import edu.umd.cs.findbugs.ba.SignatureParser;
+import edu.umd.cs.findbugs.ba.XClass;
+import edu.umd.cs.findbugs.ba.XFactory;
+import edu.umd.cs.findbugs.ba.XMethod;
+import edu.umd.cs.findbugs.classfile.ClassDescriptor;
+import edu.umd.cs.findbugs.classfile.DescriptorFactory;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
 import org.apache.bcel.Repository;
 import org.apache.bcel.classfile.AnnotationEntry;
@@ -79,6 +84,14 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
      */
     private final Set<String> receiverTransferAnnotations = new HashSet<String>();
     private final Map<String, Boolean> receiverTransferMethodCache = new ConcurrentHashMap<String, Boolean>();
+
+    /**
+     * Known subtypes declaring the method, keyed by the receiver class name and method id
+     */
+    private final Map<String, Set<String>> overridersCache = new ConcurrentHashMap<String, Set<String>>();
+    private static final Set<String> UNRESOLVED_OVERRIDERS = Collections.unmodifiableSet(new HashSet<String>());
+    private boolean distrustingDerivedOverrides;
+    private boolean distrustingDerivedConstructors;
 
     private transient TaintConfigUsage usage;
     private transient Set<String> excludedKeys = Collections.emptySet();
@@ -551,6 +564,109 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
             }
         }
         return false;
+    }
+
+    /**
+     * Sets the kinds of derived summaries not applied to the calls
+     *
+     * @param kinds kinds separated by commas, {@code override} and {@code constructor}
+     */
+    public void setDistrustedDerived(String kinds) {
+        distrustingDerivedOverrides = false;
+        distrustingDerivedConstructors = false;
+        if (kinds == null) {
+            return;
+        }
+        for (String kind : kinds.split(",")) {
+            kind = kind.trim();
+            if (kind.equals("override")) {
+                distrustingDerivedOverrides = true;
+            } else if (kind.equals("constructor")) {
+                distrustingDerivedConstructors = true;
+            } else if (!kind.isEmpty()) {
+                throw new IllegalArgumentException("Unknown kind of distrusted derived summaries " + kind);
+            }
+        }
+    }
+
+    /**
+     * Whether the derived summary of a virtual method declared by a known subtype of the receiver class
+     * is not applied, it may not describe the implementation invoked at runtime
+     */
+    public boolean isDistrustingDerivedOverrides() {
+        return distrustingDerivedOverrides;
+    }
+
+    /**
+     * Whether the derived summary of a constructor is not applied to the constructed object, the summary
+     * does not describe the receiver
+     */
+    public boolean isDistrustingDerivedConstructors() {
+        return distrustingDerivedConstructors;
+    }
+
+    /**
+     * Returns the known subtypes of the class declaring a non abstract method with the same name and
+     * signature, without reporting missing classes
+     *
+     * @param className slashed name of the receiver class
+     * @param methodId method name with signature, e.g. .getName()Ljava/lang/String;
+     * @return slashed names of the subtypes, null if the subtypes of the class are not known
+     */
+    public Set<String> getOverriders(String className, String methodId) {
+        String key = className.concat(methodId);
+        Set<String> overriders = overridersCache.get(key);
+        if (overriders == null) {
+            overriders = findOverriders(className, methodId);
+            overridersCache.put(key, overriders);
+        }
+        return overriders == UNRESOLVED_OVERRIDERS ? null : overriders;
+    }
+
+    private static Set<String> findOverriders(String className, String methodId) {
+        AnalysisContext analysisContext = AnalysisContext.currentAnalysisContext();
+        if (analysisContext == null || className.startsWith("[") || className.endsWith("]")) {
+            return UNRESOLVED_OVERRIDERS;
+        }
+        XFactory xFactory = AnalysisContext.currentXFactory();
+        ClassDescriptor classDescriptor = DescriptorFactory.createClassDescriptor(className);
+        XClass receiverClass = xFactory.getXClass(classDescriptor);
+        if (receiverClass == null) {
+            // resolving the subtypes of a missing class would report it
+            return UNRESOLVED_OVERRIDERS;
+        }
+        int signatureIndex = methodId.indexOf('(');
+        String methodName = methodId.substring(1, signatureIndex);
+        String signature = methodId.substring(signatureIndex);
+        XMethod receiverMethod = receiverClass.findMethod(methodName, signature, false);
+        if (receiverClass.isFinal() || receiverMethod != null && (receiverMethod.isFinal() || receiverMethod.isPrivate())) {
+            return Collections.emptySet();
+        }
+        Set<ClassDescriptor> subtypes;
+        try {
+            subtypes = analysisContext.getSubtypes2().getSubtypes(classDescriptor);
+        } catch (ClassNotFoundException ex) {
+            return UNRESOLVED_OVERRIDERS;
+        }
+        Set<String> overriders = new TreeSet<String>();
+        for (ClassDescriptor subtype : subtypes) {
+            if (subtype.equals(classDescriptor)) {
+                continue;
+            }
+            XClass xClass = xFactory.getXClass(subtype);
+            if (xClass == null) {
+                continue;
+            }
+            // bridge methods included, a generic method is overridden under the erased signature by a bridge
+            XMethod method = xClass.findMethod(methodName, signature, false);
+            if (method != null && !method.isAbstract() && !method.isPrivate()) {
+                overriders.add(subtype.getClassName());
+            }
+        }
+        if (overriders.isEmpty()) {
+            return Collections.emptySet();
+        }
+        return Collections.unmodifiableSet(overriders);
     }
 
     /**
