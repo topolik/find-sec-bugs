@@ -49,6 +49,7 @@ public class FindSecBugsGlobalConfig {
     private String taintDistrustDerivedFile;
     private int taintDistrustDerivedMaxMerged;
     private String taintOverridersFile;
+    private boolean taintPrepass;
 
     protected FindSecBugsGlobalConfig() {
         debugOutputTaintConfigs = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.outputconfigs", Boolean.FALSE.toString()));
@@ -67,6 +68,7 @@ public class FindSecBugsGlobalConfig {
         taintDistrustDerivedFile = loadFromSystem("findsecbugs.taint.distrustderivedfile", null);
         taintDistrustDerivedMaxMerged = Integer.parseInt(loadFromSystem("findsecbugs.taint.distrustderivedmaxmerged", "16"));
         taintOverridersFile = loadFromSystem("findsecbugs.taint.overridersfile", null);
+        taintPrepass = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.prepass", Boolean.FALSE.toString()));
     }
 
     public String loadFromSystem(String key, String defaultValue) {
@@ -271,6 +273,19 @@ public class FindSecBugsGlobalConfig {
 
     public void setTaintOverridersFile(String taintOverridersFile) {
         this.taintOverridersFile = taintOverridersFile;
+    }
+
+    /**
+     * Derive the summaries of all analyzed classes before the detectors run, so the summaries of the
+     * classes analyzed later, such as the overriding methods merged by {@link #getTaintDistrustDerived},
+     * are known at the call sites
+     */
+    public boolean isTaintPrepass() {
+        return taintPrepass;
+    }
+
+    public void setTaintPrepass(boolean taintPrepass) {
+        this.taintPrepass = taintPrepass;
     }
 
     public boolean isReportPotentialXssWrongContext() {
