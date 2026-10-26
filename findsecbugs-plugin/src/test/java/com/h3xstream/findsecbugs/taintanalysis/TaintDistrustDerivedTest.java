@@ -36,6 +36,7 @@ import java.util.zip.GZIPOutputStream;
 
 import static org.mockito.Mockito.*;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
 public class TaintDistrustDerivedTest extends BaseDetectorTest {
@@ -194,6 +195,30 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
             assertTrue(lines.contains("merge\t" + PACKAGE + "DistrustPendingBase.command()Ljava/lang/String;"
                     + "\tpending"), lines.toString());
         } finally {
+            FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(null);
+            distrustFile.delete();
+        }
+    }
+
+    @Test
+    public void prepassResolvesPendingOverriders() throws Exception {
+        File distrustFile = File.createTempFile("distrusted-derived", ".txt");
+        FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(distrustFile.getAbsolutePath());
+        FindSecBugsGlobalConfig.getInstance().setTaintPrepass(true);
+        try {
+            EasyBugReporter reporter = spy(new SecurityReporter());
+            analyzeDistrusting("merge", getFiles(), reporter);
+
+            //The overrider analyzed after the call site is merged, the prepass writes no outcome
+            verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                    .inClass("DistrustMergeSamples").inMethod("pendingCommand").build());
+            List<String> lines = Files.readAllLines(distrustFile.toPath(), StandardCharsets.UTF_8);
+            assertTrue(lines.contains("merge\t" + PACKAGE + "DistrustPendingBase.command()Ljava/lang/String;"
+                    + "\tmerged"), lines.toString());
+            assertFalse(lines.contains("merge\t" + PACKAGE + "DistrustPendingBase.command()Ljava/lang/String;"
+                    + "\tpending"), lines.toString());
+        } finally {
+            FindSecBugsGlobalConfig.getInstance().setTaintPrepass(false);
             FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(null);
             distrustFile.delete();
         }

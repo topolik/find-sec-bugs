@@ -96,6 +96,8 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     private final TaintConfig taintConfig = new TaintConfig();
     private int excludedKeyCount;
     private boolean derivedConfigImported;
+    private boolean prepassStarted;
+    private static boolean prepass;
     @SuppressFBWarnings(value="MS_SHOULD_BE_REFACTORED_TO_BE_FINAL", justification="Can't be final because FileOutputStream needs a try-catch.")
     protected static Writer writer = null;
     private static List<TaintFrameAdditionalVisitor> visitors = new ArrayList<TaintFrameAdditionalVisitor>();
@@ -297,6 +299,33 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     }
 
     /**
+     * Starts the prepass deriving the summaries of all analyzed classes, once per analysis. Until
+     * {@link #finishPrepass()}, the derived summaries and the distrusted summaries are not written.
+     *
+     * @return false if the prepass is disabled or already started
+     */
+    public static boolean startPrepass() {
+        if (!CONFIG.isTaintPrepass() || instance.prepassStarted) {
+            return false;
+        }
+        instance.prepassStarted = true;
+        prepass = true;
+        return true;
+    }
+
+    public static void finishPrepass() {
+        prepass = false;
+    }
+
+    /**
+     * @return true if the prepass of the analysis has derived the summaries, so the dataflows cached by
+     * the prepass are outdated
+     */
+    public static boolean isPrepassed() {
+        return instance.prepassStarted && !prepass;
+    }
+
+    /**
      * Describes the derived summary of the method, used to detect a change between two analyses
      */
     public static String getSummaryKey(String slashedMethodName) {
@@ -339,7 +368,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
      * Writes the derived summary of the method, if enabled
      */
     public static void writeDerivedConfig(String slashedMethodName) {
-        if (!CONFIG.isDebugOutputTaintConfigs() || writer == null) {
+        if (!CONFIG.isDebugOutputTaintConfigs() || writer == null || prepass) {
             return;
         }
         TaintMethodConfig derivedConfig = instance.taintConfig.get(slashedMethodName);
@@ -406,7 +435,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
 
     private static synchronized void writeDistrustLine(String line) {
         String fileName = CONFIG.getTaintDistrustDerivedFile();
-        if (fileName == null || fileName.isEmpty()) {
+        if (fileName == null || fileName.isEmpty() || prepass) {
             return;
         }
         try {
