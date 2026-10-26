@@ -737,13 +737,14 @@ public class Taint {
                 (a.sources != null ? a.sources.size() : 0) +
                         (b.sources != null ? b.sources.size() : 0);
         if (sourcesSize > 0) {
+            // either set may be empty
             result.sources = new HashSet<>(sourcesSize);
-        }
-        if (a.sources != null) {
-            result.sources.addAll(a.sources);
-        }
-        if (b.sources != null) {
-            result.sources.addAll(b.sources);
+            if (a.sources != null) {
+                result.sources.addAll(a.sources);
+            }
+            if (b.sources != null) {
+                result.sources.addAll(b.sources);
+            }
         }
 
         return result;
@@ -915,7 +916,7 @@ public class Taint {
     }
 
     protected void addAllSources(Set<UnknownSource> sources) {
-        if (sources == null) {
+        if (sources == null || sources.isEmpty()) {
             return;
         }
 
