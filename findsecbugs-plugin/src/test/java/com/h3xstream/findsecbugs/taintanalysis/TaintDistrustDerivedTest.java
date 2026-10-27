@@ -22,6 +22,8 @@ import com.h3xstream.findbugs.test.EasyBugReporter;
 import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
 import edu.umd.cs.findbugs.classfile.ClassDescriptor;
 import org.mockito.ArgumentCaptor;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.io.File;
@@ -42,6 +44,20 @@ import static org.testng.Assert.assertTrue;
 public class TaintDistrustDerivedTest extends BaseDetectorTest {
 
     private static final String PACKAGE = "testcode/taint/distrustderived/";
+
+    private boolean prepass;
+
+    @BeforeMethod
+    public void disablePrepass() {
+        //The kinds are tested without the prepass, see prepassResolvesPendingOverriders
+        prepass = FindSecBugsGlobalConfig.getInstance().isTaintPrepass();
+        FindSecBugsGlobalConfig.getInstance().setTaintPrepass(false);
+    }
+
+    @AfterMethod
+    public void restorePrepass() {
+        FindSecBugsGlobalConfig.getInstance().setTaintPrepass(prepass);
+    }
 
     private String[] getFiles() {
         return new String[] {
@@ -74,7 +90,7 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
     @Test
     public void overriddenMethodSummaryIsDistrusted() throws Exception {
         EasyBugReporter reporter = spy(new SecurityReporter());
-        analyze(getFiles(), reporter);
+        analyzeDistrusting("none", getFiles(), reporter);
 
         for (String method : new String[] {"overriddenCommand", "defaultCommand"}) {
             verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
@@ -227,7 +243,7 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
     @Test
     public void mergedImplementorsSummaryIsApplied() throws Exception {
         EasyBugReporter reporter = spy(new SecurityReporter());
-        analyze(getFiles(), reporter);
+        analyzeDistrusting("none", getFiles(), reporter);
 
         for (String method : new String[] {"implementorsCommand", "abstractCommand"}) {
             verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
@@ -352,7 +368,7 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
         FindSecBugsGlobalConfig.getInstance().setTaintImportConfigFile(importFile.getAbsolutePath());
         try {
             EasyBugReporter reporter = spy(new SecurityReporter());
-            analyze(files, reporter);
+            analyzeDistrusting("none", files, reporter);
             Set<ClassDescriptor> missingClasses = getMissingClasses(reporter);
 
             reporter = spy(new SecurityReporter());
@@ -386,11 +402,12 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
     }
 
     private void analyzeDistrusting(String kinds, String[] files, EasyBugReporter reporter) throws Exception {
+        String defaultKinds = FindSecBugsGlobalConfig.getInstance().getTaintDistrustDerived();
         FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerived(kinds);
         try {
             analyze(files, reporter);
         } finally {
-            FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerived(null);
+            FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerived(defaultKinds);
         }
     }
 }
