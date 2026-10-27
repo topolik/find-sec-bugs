@@ -35,6 +35,8 @@ public class FindSecBugsGlobalConfigTest {
     @Test
     public void derivedSummariesDefaults() {
         FindSecBugsGlobalConfig config = new FindSecBugsGlobalConfig();
+        assertFalse(config.isTaintOverriders());
+        //Applied only with the overriders
         assertTrue(config.isTaintPrepass());
         assertEquals(config.getTaintDistrustDerived(), "merge,implementors");
 
