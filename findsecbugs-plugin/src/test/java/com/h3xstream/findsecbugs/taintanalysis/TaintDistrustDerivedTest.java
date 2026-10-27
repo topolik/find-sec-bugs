@@ -45,17 +45,21 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
 
     private static final String PACKAGE = "testcode/taint/distrustderived/";
 
+    private boolean overriders;
     private boolean prepass;
 
     @BeforeMethod
-    public void disablePrepass() {
+    public void enableOverriders() {
         //The kinds are tested without the prepass, see prepassResolvesPendingOverriders
+        overriders = FindSecBugsGlobalConfig.getInstance().isTaintOverriders();
         prepass = FindSecBugsGlobalConfig.getInstance().isTaintPrepass();
+        FindSecBugsGlobalConfig.getInstance().setTaintOverriders(true);
         FindSecBugsGlobalConfig.getInstance().setTaintPrepass(false);
     }
 
     @AfterMethod
-    public void restorePrepass() {
+    public void restoreOverriders() {
+        FindSecBugsGlobalConfig.getInstance().setTaintOverriders(overriders);
         FindSecBugsGlobalConfig.getInstance().setTaintPrepass(prepass);
     }
 
@@ -104,6 +108,31 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
         for (String method : new String[] {"overriddenCommand", "defaultCommand"}) {
             verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
                     .inClass("DistrustSamples").inMethod(method).build());
+        }
+    }
+
+    @Test
+    public void kindsApplyOnlyWithOverriders() throws Exception {
+        File distrustFile = File.createTempFile("distrusted-derived", ".txt");
+        FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(distrustFile.getAbsolutePath());
+        FindSecBugsGlobalConfig.getInstance().setTaintOverriders(false);
+        try {
+            EasyBugReporter reporter = spy(new SecurityReporter());
+            analyzeDistrusting("override,implementors", getFiles(), reporter);
+
+            //The derived summaries are applied as with none
+            for (String method : new String[] {"overriddenCommand", "defaultCommand"}) {
+                verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                        .inClass("DistrustSamples").inMethod(method).build());
+            }
+            for (String method : new String[] {"implementorsCommand", "abstractCommand"}) {
+                verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
+                        .inClass("DistrustImplementorsSamples").inMethod(method).build());
+            }
+            assertEquals(distrustFile.length(), 0);
+        } finally {
+            FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(null);
+            distrustFile.delete();
         }
     }
 

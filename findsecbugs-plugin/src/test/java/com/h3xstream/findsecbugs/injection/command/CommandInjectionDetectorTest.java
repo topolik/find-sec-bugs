@@ -19,7 +19,6 @@ package com.h3xstream.findsecbugs.injection.command;
 
 import com.h3xstream.findbugs.test.BaseDetectorTest;
 import com.h3xstream.findbugs.test.EasyBugReporter;
-import com.h3xstream.findsecbugs.FindSecBugsGlobalConfig;
 import java.util.Arrays;
 import java.util.List;
 
@@ -39,15 +38,8 @@ public class CommandInjectionDetectorTest extends BaseDetectorTest {
         };
 
         //Run the analysis
-        //The merge kind gives new MoreMethods().safeParentparametricChild() the summary of SubClass too
-        String defaultKinds = FindSecBugsGlobalConfig.getInstance().getTaintDistrustDerived();
-        FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerived("none");
         EasyBugReporter reporter = spy(new SecurityReporter());
-        try {
-            analyze(files, reporter);
-        } finally {
-            FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerived(defaultKinds);
-        }
+        analyze(files, reporter);
 
         List<Integer> linesMedium = Arrays.asList(
                 44, 130, 135, 141, 154, 158, 159, 160, 166

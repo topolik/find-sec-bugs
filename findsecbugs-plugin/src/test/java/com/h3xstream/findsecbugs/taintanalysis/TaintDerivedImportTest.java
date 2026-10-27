@@ -141,15 +141,8 @@ public class TaintDerivedImportTest extends BaseDetectorTest {
                 getClassFilePath("testcode/taint/derivedimport/DerivedImportSamples")
         };
 
-        //The merge kind does not apply the summary of the interface method, its implementors are not known
-        String defaultKinds = FindSecBugsGlobalConfig.getInstance().getTaintDistrustDerived();
-        FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerived("none");
         EasyBugReporter reporter = spy(new SecurityReporter());
-        try {
-            analyzeWithImport(files, reporter, GET + ":SAFE");
-        } finally {
-            FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerived(defaultKinds);
-        }
+        analyzeWithImport(files, reporter, GET + ":SAFE");
 
         verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
                 .inClass("DerivedImportSamples").inMethod("sourceCommand").build());

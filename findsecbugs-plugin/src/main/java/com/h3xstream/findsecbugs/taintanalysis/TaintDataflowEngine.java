@@ -169,14 +169,24 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
             LOGGER.info("The argument of the main method is not considered tainted");
         }
         String distrustDerived = CONFIG.getTaintDistrustDerived();
-        taintConfig.setDistrustedDerived(distrustDerived);
-        if (distrustDerived != null && !distrustDerived.isEmpty()) {
-            LOGGER.log(Level.INFO, "Derived summaries not applied: {0}", distrustDerived);
+        if (CONFIG.isTaintOverriders()) {
+            taintConfig.setDistrustedDerived(distrustDerived);
+            if (isSet(distrustDerived)) {
+                LOGGER.log(Level.INFO, "Derived summaries not applied: {0}", distrustDerived);
+            }
+            String overridersFile = CONFIG.getTaintOverridersFile();
+            if (isSet(overridersFile)) {
+                loadOverriders(overridersFile);
+            }
+        } else if (isSet(CONFIG.getTaintOverridersFile()) || isSet(CONFIG.getTaintDistrustDerivedFile())
+                || isSet(distrustDerived) && !distrustDerived.equals("none")
+                && !distrustDerived.equals("merge,implementors")) {
+            LOGGER.warning("The derived summaries settings are ignored, findsecbugs.taint.overriders is not enabled");
         }
-        String overridersFile = CONFIG.getTaintOverridersFile();
-        if (overridersFile != null && !overridersFile.isEmpty()) {
-            loadOverriders(overridersFile);
-        }
+    }
+
+    private static boolean isSet(String value) {
+        return value != null && !value.isEmpty();
     }
 
     private void loadOverriders(String overridersFile) {
@@ -304,10 +314,10 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
      * {@link #finishPrepass()}, the derived summaries and the distrusted summaries are not written and
      * the config usage is not recorded. The prepass leaves only the derived summaries behind.
      *
-     * @return false if the prepass is disabled or already started
+     * @return false if the prepass or the overriders are disabled, or the prepass already started
      */
     public static boolean startPrepass() {
-        if (!CONFIG.isTaintPrepass() || instance.prepassStarted) {
+        if (!CONFIG.isTaintOverriders() || !CONFIG.isTaintPrepass() || instance.prepassStarted) {
             return false;
         }
         instance.prepassStarted = true;

@@ -56,8 +56,10 @@ public class TaintConfigUsageTest extends BaseDetectorTest {
         File usageFile = File.createTempFile("config-usage", ".txt");
 
         FindSecBugsGlobalConfig config = FindSecBugsGlobalConfig.getInstance();
+        boolean defaultOverriders = config.isTaintOverriders();
         boolean defaultPrepass = config.isTaintPrepass();
         try {
+            config.setTaintOverriders(prepass);
             config.setTaintPrepass(prepass);
             config.setCustomConfigFile(configFile.getCanonicalPath());
             config.setTaintConfigUsage("all");
@@ -125,6 +127,7 @@ public class TaintConfigUsageTest extends BaseDetectorTest {
                     "weaken-builtin");
             assertEquals(overrides.get("java/lang/Integer.toString()Ljava/lang/String;")[7], "same");
         } finally {
+            config.setTaintOverriders(defaultOverriders);
             config.setTaintPrepass(defaultPrepass);
             config.setCustomConfigFile("");
             config.setTaintConfigUsage(null);
