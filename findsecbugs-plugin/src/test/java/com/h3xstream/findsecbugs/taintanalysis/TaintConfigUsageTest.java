@@ -41,12 +41,24 @@ public class TaintConfigUsageTest extends BaseDetectorTest {
 
     @Test
     public void verdicts() throws Exception {
+        assertVerdicts(false);
+    }
+
+    @Test
+    public void verdictsWithPrepass() throws Exception {
+        //The prepass does not record the usage, the hits are the same
+        assertVerdicts(true);
+    }
+
+    private void assertVerdicts(boolean prepass) throws Exception {
         URL configUrl = this.getClass().getResource("/com/h3xstream/findsecbugs/taintanalysis/ConfigUsage.txt");
         File configFile = new File(configUrl.toURI());
         File usageFile = File.createTempFile("config-usage", ".txt");
 
         FindSecBugsGlobalConfig config = FindSecBugsGlobalConfig.getInstance();
+        boolean defaultPrepass = config.isTaintPrepass();
         try {
+            config.setTaintPrepass(prepass);
             config.setCustomConfigFile(configFile.getCanonicalPath());
             config.setTaintConfigUsage("all");
             config.setTaintConfigUsageFile(usageFile.getAbsolutePath());
@@ -113,6 +125,7 @@ public class TaintConfigUsageTest extends BaseDetectorTest {
                     "weaken-builtin");
             assertEquals(overrides.get("java/lang/Integer.toString()Ljava/lang/String;")[7], "same");
         } finally {
+            config.setTaintPrepass(defaultPrepass);
             config.setCustomConfigFile("");
             config.setTaintConfigUsage(null);
             config.setTaintConfigUsageFile("config-usage.txt");

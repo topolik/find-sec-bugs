@@ -690,7 +690,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         String methodId = "." + methodName + signature;
         TaintMethodConfig config = taintConfig.getMethodConfig(getFrame(), methodDescriptor, className, methodId);
         TaintConfigUsage usage = taintConfig.getUsage();
-        if (usage != null && config != null && usage.isCustom(config)) {
+        if (usage != null && config != null && !TaintDataflowEngine.isPrepassing() && usage.isCustom(config)) {
             recordConfigUsage(usage, obj, config, className, methodName, methodId, returnType);
         }
         if (config != null) {
@@ -1329,7 +1329,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         TaintMethodConfig previousConfig = taintConfig.get(fullMethodName);
         if (previousConfig != null && previousConfig.isConfigured()) {
             TaintConfigUsage usage = taintConfig.getUsage();
-            if (usage != null && usage.isCustom(previousConfig)) {
+            if (usage != null && !TaintDataflowEngine.isPrepassing() && usage.isCustom(previousConfig)) {
                 try {
                     usage.recordShadow(fullMethodName, analyzedMethodConfig, analyzedMethodConfig.isInformative()
                             || taintConfig.hasSuperMethodConfigQuietly(className, methodId));
