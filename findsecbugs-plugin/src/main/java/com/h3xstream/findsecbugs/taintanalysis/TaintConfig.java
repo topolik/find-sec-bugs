@@ -1141,5 +1141,23 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
         staticFieldsTaint.put(fieldSignature, t);
     }
 
+    /**
+     * @return copy of the taint of the static fields, see {@link #restoreStaticFieldsTaint(Map)}
+     */
+    Map<String, Taint> copyStaticFieldsTaint() {
+        Map<String, Taint> copy = new HashMap<String, Taint>();
+        for (Map.Entry<String, Taint> entry : staticFieldsTaint.entrySet()) {
+            copy.put(entry.getKey(), new Taint(entry.getValue()));
+        }
+        return copy;
+    }
+
+    /**
+     * Replaces the taint of the static fields with a copy made before
+     */
+    void restoreStaticFieldsTaint(Map<String, Taint> copy) {
+        staticFieldsTaint.clear();
+        staticFieldsTaint.putAll(copy);
+    }
 
 }

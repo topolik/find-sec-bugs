@@ -97,6 +97,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     private int excludedKeyCount;
     private boolean derivedConfigImported;
     private boolean prepassStarted;
+    private Map<String, Taint> staticFieldsTaint;
     private static boolean prepass;
     @SuppressFBWarnings(value="MS_SHOULD_BE_REFACTORED_TO_BE_FINAL", justification="Can't be final because FileOutputStream needs a try-catch.")
     protected static Writer writer = null;
@@ -300,7 +301,8 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
 
     /**
      * Starts the prepass deriving the summaries of all analyzed classes, once per analysis. Until
-     * {@link #finishPrepass()}, the derived summaries and the distrusted summaries are not written.
+     * {@link #finishPrepass()}, the derived summaries and the distrusted summaries are not written and
+     * the config usage is not recorded. The prepass leaves only the derived summaries behind.
      *
      * @return false if the prepass is disabled or already started
      */
@@ -309,12 +311,25 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
             return false;
         }
         instance.prepassStarted = true;
+        // the static initializers must not read the static fields written by the prepass
+        instance.staticFieldsTaint = instance.taintConfig.copyStaticFieldsTaint();
         prepass = true;
         return true;
     }
 
     public static void finishPrepass() {
         prepass = false;
+        if (instance.staticFieldsTaint != null) {
+            instance.taintConfig.restoreStaticFieldsTaint(instance.staticFieldsTaint);
+            instance.staticFieldsTaint = null;
+        }
+    }
+
+    /**
+     * @return true while the prepass derives the summaries
+     */
+    public static boolean isPrepassing() {
+        return prepass;
     }
 
     /**
