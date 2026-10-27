@@ -64,11 +64,11 @@ public class FindSecBugsGlobalConfig {
         taintConfigUsageFile = loadFromSystem("findsecbugs.taint.configusagefile", "config-usage.txt");
         taintExcludeConfigKeys = loadFromSystem("findsecbugs.taint.excludeconfigkeys", null);
         taintImportConfigFile = loadFromSystem("findsecbugs.taint.importconfigfile", null);
-        taintDistrustDerived = loadFromSystem("findsecbugs.taint.distrustderived", null);
+        taintDistrustDerived = loadFromSystem("findsecbugs.taint.distrustderived", "merge,implementors");
         taintDistrustDerivedFile = loadFromSystem("findsecbugs.taint.distrustderivedfile", null);
         taintDistrustDerivedMaxMerged = Integer.parseInt(loadFromSystem("findsecbugs.taint.distrustderivedmaxmerged", "16"));
         taintOverridersFile = loadFromSystem("findsecbugs.taint.overridersfile", null);
-        taintPrepass = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.prepass", Boolean.FALSE.toString()));
+        taintPrepass = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.prepass", Boolean.TRUE.toString()));
     }
 
     public String loadFromSystem(String key, String defaultValue) {
@@ -231,7 +231,8 @@ public class FindSecBugsGlobalConfig {
      * Kinds of derived summaries not applied to the calls, separated by commas: {@code override} for
      * the methods declared by a known subtype of the receiver class, {@code merge} to apply the summary
      * merged with the summaries of the subtypes instead, {@code implementors} to apply the summaries
-     * of the subtypes merged to the abstract methods, {@code constructor} for the constructed object
+     * of the subtypes merged to the abstract methods, {@code constructor} for the constructed object.
+     * Defaults to {@code merge,implementors}, {@code none} or an empty value applies all derived summaries
      */
     public String getTaintDistrustDerived() {
         return taintDistrustDerived;
@@ -278,7 +279,7 @@ public class FindSecBugsGlobalConfig {
     /**
      * Derive the summaries of all analyzed classes before the detectors run, so the summaries of the
      * classes analyzed later, such as the overriding methods merged by {@link #getTaintDistrustDerived},
-     * are known at the call sites
+     * are known at the call sites. Enabled by default
      */
     public boolean isTaintPrepass() {
         return taintPrepass;

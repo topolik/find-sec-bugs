@@ -17,9 +17,12 @@
  */
 package com.h3xstream.findsecbugs;
 
+import com.h3xstream.findsecbugs.taintanalysis.TaintConfig;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertTrue;
 
 public class FindSecBugsGlobalConfigTest {
 
@@ -27,6 +30,33 @@ public class FindSecBugsGlobalConfigTest {
     public void version() {
         FindSecBugsGlobalConfig.getInstance().setFindSecBugsVersion("1.3.3.7");
         assertEquals(FindSecBugsGlobalConfig.getInstance().getFindSecBugsVersion(),"1.3.3.7");
+    }
+
+    @Test
+    public void derivedSummariesDefaults() {
+        FindSecBugsGlobalConfig config = new FindSecBugsGlobalConfig();
+        assertTrue(config.isTaintPrepass());
+        assertEquals(config.getTaintDistrustDerived(), "merge,implementors");
+
+        TaintConfig taintConfig = new TaintConfig();
+        taintConfig.setDistrustedDerived(config.getTaintDistrustDerived());
+        assertTrue(taintConfig.isDistrustingDerivedOverrides());
+        assertTrue(taintConfig.isMergingDerivedOverrides());
+        assertTrue(taintConfig.isMergingImplementors());
+        assertFalse(taintConfig.isDistrustingDerivedConstructors());
+    }
+
+    @Test
+    public void derivedSummariesOptOut() {
+        for (String kinds : new String[] {"none", ""}) {
+            TaintConfig taintConfig = new TaintConfig();
+            taintConfig.setDistrustedDerived("merge,implementors,constructor");
+            taintConfig.setDistrustedDerived(kinds);
+            assertFalse(taintConfig.isDistrustingDerivedOverrides(), kinds);
+            assertFalse(taintConfig.isMergingDerivedOverrides(), kinds);
+            assertFalse(taintConfig.isMergingImplementors(), kinds);
+            assertFalse(taintConfig.isDistrustingDerivedConstructors(), kinds);
+        }
     }
 
 }

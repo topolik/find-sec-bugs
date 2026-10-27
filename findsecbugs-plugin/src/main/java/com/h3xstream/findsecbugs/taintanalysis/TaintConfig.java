@@ -584,7 +584,7 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
      * Sets the kinds of derived summaries not applied to the calls
      *
      * @param kinds kinds separated by commas, {@code override}, {@code merge}, {@code implementors} and
-     * {@code constructor}
+     * {@code constructor}, or {@code none}
      */
     public void setDistrustedDerived(String kinds) {
         distrustingDerivedOverrides = false;
@@ -605,7 +605,7 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
                 mergingImplementors = true;
             } else if (kind.equals("constructor")) {
                 distrustingDerivedConstructors = true;
-            } else if (!kind.isEmpty()) {
+            } else if (!kind.isEmpty() && !kind.equals("none")) {
                 throw new IllegalArgumentException("Unknown kind of distrusted derived summaries " + kind);
             }
         }
