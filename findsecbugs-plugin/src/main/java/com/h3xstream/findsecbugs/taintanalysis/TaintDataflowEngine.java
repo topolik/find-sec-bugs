@@ -99,6 +99,11 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     private boolean prepassStarted;
     private Map<String, Taint> staticFieldsTaint;
     private static boolean prepass;
+    /**
+     * Whether {@link #startPrepass()} skips the prepass, set only by the tests of the summaries pending
+     * without it
+     */
+    static boolean prepassSkipped;
     @SuppressFBWarnings(value="MS_SHOULD_BE_REFACTORED_TO_BE_FINAL", justification="Can't be final because FileOutputStream needs a try-catch.")
     protected static Writer writer = null;
     private static List<TaintFrameAdditionalVisitor> visitors = new ArrayList<TaintFrameAdditionalVisitor>();
@@ -168,19 +173,14 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         if (!CONFIG.isTaintedMainArgument()) {
             LOGGER.info("The argument of the main method is not considered tainted");
         }
-        String distrustDerived = CONFIG.getTaintDistrustDerived();
         if (CONFIG.isTaintOverriders()) {
-            taintConfig.setDistrustedDerived(distrustDerived);
-            if (isSet(distrustDerived)) {
-                LOGGER.log(Level.INFO, "Derived summaries not applied: {0}", distrustDerived);
-            }
+            taintConfig.setMergingOverriders(true);
+            LOGGER.info("The derived summaries are merged with the summaries of the overriding methods");
             String overridersFile = CONFIG.getTaintOverridersFile();
             if (isSet(overridersFile)) {
                 loadOverriders(overridersFile);
             }
-        } else if (isSet(CONFIG.getTaintOverridersFile()) || isSet(CONFIG.getTaintDistrustDerivedFile())
-                || isSet(distrustDerived) && !distrustDerived.equals("none")
-                && !distrustDerived.equals("merge,implementors")) {
+        } else if (isSet(CONFIG.getTaintOverridersFile()) || isSet(CONFIG.getTaintDistrustDerivedFile())) {
             LOGGER.warning("The derived summaries settings are ignored, findsecbugs.taint.overriders is not enabled");
         }
     }
@@ -314,10 +314,10 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
      * {@link #finishPrepass()}, the derived summaries and the distrusted summaries are not written and
      * the config usage is not recorded. The prepass leaves only the derived summaries behind.
      *
-     * @return false if the prepass or the overriders are disabled, or the prepass already started
+     * @return false if the overriders are disabled or the prepass already started
      */
     public static boolean startPrepass() {
-        if (!CONFIG.isTaintOverriders() || !CONFIG.isTaintPrepass() || instance.prepassStarted) {
+        if (!CONFIG.isTaintOverriders() || prepassSkipped || instance.prepassStarted) {
             return false;
         }
         instance.prepassStarted = true;

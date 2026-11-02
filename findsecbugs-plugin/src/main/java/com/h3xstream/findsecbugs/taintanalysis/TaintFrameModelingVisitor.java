@@ -61,6 +61,10 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
      * injection, so both CR_ENCODED and LF_ENCODED must be set when they appear.
      */
     private static final String[] LINEBREAK_REGEX_TOKENS = {"\\R", "\\v"};
+    /**
+     * Maximum number of overriding methods whose summaries are merged, changed only by the tests
+     */
+    static int maxMergedOverriders = 16;
     private final MethodDescriptor methodDescriptor;
     private final TaintConfig taintConfig;
     private final TaintMethodConfig analyzedMethodConfig;
@@ -723,19 +727,13 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         boolean constructor = Const.CONSTRUCTOR_NAME.equals(methodName)
                 && !taintConfig.isClassTaintSafe(classNameSignature);
         if (config != null) {
-            if (constructor && taintConfig.isDistrustingDerivedConstructors()) {
-                // the derived summary does not describe the constructed object
-                TaintDataflowEngine.writeDistrustedSummary("constructor", className + methodId, null, true);
-                return getDefaultConstructorConfig(obj, className, config);
-            }
-            if ((obj instanceof INVOKEVIRTUAL || obj instanceof INVOKEINTERFACE)
-                    && taintConfig.isDistrustingDerivedOverrides()) {
+            if ((obj instanceof INVOKEVIRTUAL || obj instanceof INVOKEINTERFACE) && taintConfig.isMergingOverriders()) {
                 // the derived summary describes one implementation of the method
                 Set<String> overriders = taintConfig.getOverriders(className, methodId);
                 if (overriders == null || !overriders.isEmpty()) {
                     TaintDataflowEngine.writeDistrustedSummary("override", className + methodId, overriders,
                             overriders != null);
-                    if (overriders != null && taintConfig.isMergingDerivedOverrides()) {
+                    if (overriders != null) {
                         return getMergedOverridersConfig(obj, "merge", className, methodName, methodId, config,
                                 overriders);
                     }
@@ -745,9 +743,9 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             return config;
         }
         if (constructor) {
-            return getDefaultConstructorConfig(obj, className, null);
+            return getDefaultConstructorConfig(obj, className);
         }
-        if ((obj instanceof INVOKEVIRTUAL || obj instanceof INVOKEINTERFACE) && taintConfig.isMergingImplementors()) {
+        if ((obj instanceof INVOKEVIRTUAL || obj instanceof INVOKEINTERFACE) && taintConfig.isMergingOverriders()) {
             return getMergedImplementorsConfig(obj, className, methodName, methodId);
         }
         return null;
@@ -793,7 +791,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             String methodName, String methodId, TaintMethodConfig config, Set<String> overriders) {
         TaintMethodConfig mergedConfig = null;
         String outcome;
-        if (overriders.size() > FindSecBugsGlobalConfig.getInstance().getTaintDistrustDerivedMaxMerged()) {
+        if (overriders.size() > maxMergedOverriders) {
             outcome = "capped";
         } else {
             List<TaintMethodConfig> configs = new ArrayList<TaintMethodConfig>();
@@ -919,21 +917,12 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
 
     /**
      * Gets the summary of a constructor that taints the constructed object with unknown taint
-     *
-     * @param derivedConfig derived summary to take the argument taints from, null if not known
      */
-    private TaintMethodConfig getDefaultConstructorConfig(InvokeInstruction obj, String className,
-            TaintMethodConfig derivedConfig) {
+    private TaintMethodConfig getDefaultConstructorConfig(InvokeInstruction obj, String className) {
         try {
             int stackSize = getFrame().getNumArgumentsIncludingObjectInstance(obj, cpg);
             TaintMethodConfig config = TaintMethodConfig.getDefaultConstructorConfig(stackSize);
             config.setTypeSignature(className+"<init>()V");
-            if (derivedConfig != null && derivedConfig.isParametersOutputTaintsProcessed()) {
-                for (Map.Entry<Integer, Taint> entry : derivedConfig.getParametersOutputTaints().entrySet()) {
-                    config.setParameterOutputTaint(entry.getKey(), new Taint(entry.getValue()));
-                }
-                config.setParametersOutputTaintsProcessed(true);
-            }
             return config;
         } catch (DataflowAnalysisException ex) {
             throw new InvalidBytecodeException(ex.getMessage(), ex);

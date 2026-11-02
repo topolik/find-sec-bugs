@@ -19,8 +19,4 @@ public class DistrustSamples {
     public void leafCommand(DistrustLeaf leaf) throws IOException {
         Runtime.getRuntime().exec(leaf.command());
     }
-
-    public void constructedCommand(String input) throws IOException {
-        Runtime.getRuntime().exec(String.valueOf(new DistrustHolder(input)));
-    }
 }

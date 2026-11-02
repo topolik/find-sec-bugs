@@ -46,15 +46,12 @@ public class StaticContextTaintPropagationTest extends BaseDetectorTest {
 
         //Run the analysis
         boolean defaultOverriders = FindSecBugsGlobalConfig.getInstance().isTaintOverriders();
-        boolean defaultPrepass = FindSecBugsGlobalConfig.getInstance().isTaintPrepass();
         FindSecBugsGlobalConfig.getInstance().setTaintOverriders(prepass);
-        FindSecBugsGlobalConfig.getInstance().setTaintPrepass(prepass);
         EasyBugReporter reporter = spy(new SecurityReporter());
         try {
             analyze(files, reporter);
         } finally {
             FindSecBugsGlobalConfig.getInstance().setTaintOverriders(defaultOverriders);
-            FindSecBugsGlobalConfig.getInstance().setTaintPrepass(defaultPrepass);
         }
 
 
