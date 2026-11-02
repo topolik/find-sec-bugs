@@ -46,11 +46,8 @@ public class FindSecBugsGlobalConfig {
     private String taintExcludeConfigKeys;
     private String taintImportConfigFile;
     private boolean taintOverriders;
-    private String taintDistrustDerived;
     private String taintDistrustDerivedFile;
-    private int taintDistrustDerivedMaxMerged;
     private String taintOverridersFile;
-    private boolean taintPrepass;
 
     protected FindSecBugsGlobalConfig() {
         debugOutputTaintConfigs = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.outputconfigs", Boolean.FALSE.toString()));
@@ -66,11 +63,8 @@ public class FindSecBugsGlobalConfig {
         taintExcludeConfigKeys = loadFromSystem("findsecbugs.taint.excludeconfigkeys", null);
         taintImportConfigFile = loadFromSystem("findsecbugs.taint.importconfigfile", null);
         taintOverriders = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.overriders", Boolean.FALSE.toString()));
-        taintDistrustDerived = loadFromSystem("findsecbugs.taint.distrustderived", "merge,implementors");
         taintDistrustDerivedFile = loadFromSystem("findsecbugs.taint.distrustderivedfile", null);
-        taintDistrustDerivedMaxMerged = Integer.parseInt(loadFromSystem("findsecbugs.taint.distrustderivedmaxmerged", "16"));
         taintOverridersFile = loadFromSystem("findsecbugs.taint.overridersfile", null);
-        taintPrepass = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.prepass", Boolean.TRUE.toString()));
     }
 
     public String loadFromSystem(String key, String defaultValue) {
@@ -230,11 +224,13 @@ public class FindSecBugsGlobalConfig {
     }
 
     /**
-     * Apply the summaries of the overriding methods to the calls: enables {@link #getTaintDistrustDerived},
-     * {@link #getTaintOverridersFile} and {@link #isTaintPrepass}. Disabled by default: scanning one
-     * module at a time, the abstract methods merge only the implementors the module knows, and the
-     * implementors of the other modules pay off only with their summaries imported, see
-     * {@link #getTaintImportConfigFile}
+     * Apply the summaries of the overriding methods to the calls: a virtual call merges the derived
+     * summary with the summaries of the overriding methods, the call of an abstract method without a
+     * summary merges the summaries of its implementors, and a prepass derives the summaries of all
+     * analyzed classes before the detectors run, see {@link #getTaintOverridersFile}. Disabled by
+     * default: scanning one module at a time, the abstract methods merge only the implementors the
+     * module knows, and the implementors of the other modules pay off only with their summaries
+     * imported, see {@link #getTaintImportConfigFile}
      */
     public boolean isTaintOverriders() {
         return taintOverriders;
@@ -245,23 +241,8 @@ public class FindSecBugsGlobalConfig {
     }
 
     /**
-     * Kinds of derived summaries not applied to the calls, separated by commas: {@code override} for
-     * the methods declared by a known subtype of the receiver class, {@code merge} to apply the summary
-     * merged with the summaries of the subtypes instead, {@code implementors} to apply the summaries
-     * of the subtypes merged to the abstract methods, {@code constructor} for the constructed object.
-     * Applies only with {@link #isTaintOverriders}. Defaults to {@code merge,implementors}, {@code none}
-     * or an empty value applies all derived summaries
-     */
-    public String getTaintDistrustDerived() {
-        return taintDistrustDerived;
-    }
-
-    public void setTaintDistrustDerived(String taintDistrustDerived) {
-        this.taintDistrustDerived = taintDistrustDerived;
-    }
-
-    /**
-     * File listing the distrusted derived summaries with their overriders
+     * File listing the distrusted derived summaries with their overriders and the outcomes of the
+     * merges, written only with {@link #isTaintOverriders}
      */
     public String getTaintDistrustDerivedFile() {
         return taintDistrustDerivedFile;
@@ -269,17 +250,6 @@ public class FindSecBugsGlobalConfig {
 
     public void setTaintDistrustDerivedFile(String taintDistrustDerivedFile) {
         this.taintDistrustDerivedFile = taintDistrustDerivedFile;
-    }
-
-    /**
-     * Maximum number of subtypes whose summaries are merged with the summary of the receiver class
-     */
-    public int getTaintDistrustDerivedMaxMerged() {
-        return taintDistrustDerivedMaxMerged;
-    }
-
-    public void setTaintDistrustDerivedMaxMerged(int taintDistrustDerivedMaxMerged) {
-        this.taintDistrustDerivedMaxMerged = taintDistrustDerivedMaxMerged;
     }
 
     /**
@@ -293,19 +263,6 @@ public class FindSecBugsGlobalConfig {
 
     public void setTaintOverridersFile(String taintOverridersFile) {
         this.taintOverridersFile = taintOverridersFile;
-    }
-
-    /**
-     * Derive the summaries of all analyzed classes before the detectors run, so the summaries of the
-     * classes analyzed later, such as the overriding methods merged by {@link #getTaintDistrustDerived},
-     * are known at the call sites. Applies only with {@link #isTaintOverriders}, enabled by default
-     */
-    public boolean isTaintPrepass() {
-        return taintPrepass;
-    }
-
-    public void setTaintPrepass(boolean taintPrepass) {
-        this.taintPrepass = taintPrepass;
     }
 
     public boolean isReportPotentialXssWrongContext() {

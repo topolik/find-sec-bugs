@@ -46,21 +46,18 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
     private static final String PACKAGE = "testcode/taint/distrustderived/";
 
     private boolean overriders;
-    private boolean prepass;
 
     @BeforeMethod
-    public void enableOverriders() {
-        //The kinds are tested without the prepass, see prepassResolvesPendingOverriders
+    public void skipPrepass() {
+        //The merges are tested without the prepass, see prepassResolvesPendingOverriders
         overriders = FindSecBugsGlobalConfig.getInstance().isTaintOverriders();
-        prepass = FindSecBugsGlobalConfig.getInstance().isTaintPrepass();
-        FindSecBugsGlobalConfig.getInstance().setTaintOverriders(true);
-        FindSecBugsGlobalConfig.getInstance().setTaintPrepass(false);
+        TaintDataflowEngine.prepassSkipped = true;
     }
 
     @AfterMethod
-    public void restoreOverriders() {
+    public void restorePrepass() {
         FindSecBugsGlobalConfig.getInstance().setTaintOverriders(overriders);
-        FindSecBugsGlobalConfig.getInstance().setTaintPrepass(prepass);
+        TaintDataflowEngine.prepassSkipped = false;
     }
 
     private String[] getFiles() {
@@ -71,7 +68,6 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
                 getClassFilePath(PACKAGE + "DistrustLeaf"),
                 getClassFilePath(PACKAGE + "DistrustDefault"),
                 getClassFilePath(PACKAGE + "DistrustDefaultImpl"),
-                getClassFilePath(PACKAGE + "DistrustHolder"),
                 getClassFilePath(PACKAGE + "DistrustMergeSamples"),
                 getClassFilePath(PACKAGE + "DistrustSafeBase"),
                 getClassFilePath(PACKAGE + "DistrustSafeOverrider"),
@@ -94,7 +90,7 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
     @Test
     public void overriddenMethodSummaryIsDistrusted() throws Exception {
         EasyBugReporter reporter = spy(new SecurityReporter());
-        analyzeDistrusting("none", getFiles(), reporter);
+        analyzeMerging(false, getFiles(), reporter);
 
         for (String method : new String[] {"overriddenCommand", "defaultCommand"}) {
             verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
@@ -102,7 +98,7 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
         }
 
         reporter = spy(new SecurityReporter());
-        analyzeDistrusting("override", getFiles(), reporter);
+        analyzeMerging(true, getFiles(), reporter);
 
         //The subtype in the analyzed code may be the runtime receiver
         for (String method : new String[] {"overriddenCommand", "defaultCommand"}) {
@@ -112,15 +108,14 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
     }
 
     @Test
-    public void kindsApplyOnlyWithOverriders() throws Exception {
+    public void distrustFileIsWrittenOnlyWithOverriders() throws Exception {
         File distrustFile = File.createTempFile("distrusted-derived", ".txt");
         FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(distrustFile.getAbsolutePath());
-        FindSecBugsGlobalConfig.getInstance().setTaintOverriders(false);
         try {
             EasyBugReporter reporter = spy(new SecurityReporter());
-            analyzeDistrusting("override,implementors", getFiles(), reporter);
+            analyzeMerging(false, getFiles(), reporter);
 
-            //The derived summaries are applied as with none
+            //The derived summaries are applied
             for (String method : new String[] {"overriddenCommand", "defaultCommand"}) {
                 verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
                         .inClass("DistrustSamples").inMethod(method).build());
@@ -139,7 +134,7 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
     @Test
     public void notOverriddenMethodSummaryIsKept() throws Exception {
         EasyBugReporter reporter = spy(new SecurityReporter());
-        analyzeDistrusting("override,constructor", getFiles(), reporter);
+        analyzeMerging(true, getFiles(), reporter);
 
         for (String method : new String[] {"finalCommand", "leafCommand"}) {
             verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
@@ -148,36 +143,18 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
     }
 
     @Test
-    public void constructorSummaryIsDistrusted() throws Exception {
-        EasyBugReporter reporter = spy(new SecurityReporter());
-        analyzeDistrusting("override", getFiles(), reporter);
-
-        //The derived summary does not describe the constructed object
-        verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
-                .inClass("DistrustSamples").inMethod("constructedCommand").build());
-
-        reporter = spy(new SecurityReporter());
-        analyzeDistrusting("constructor", getFiles(), reporter);
-
-        verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
-                .inClass("DistrustSamples").inMethod("constructedCommand").build());
-    }
-
-    @Test
     public void distrustedSummariesAreWritten() throws Exception {
         File distrustFile = File.createTempFile("distrusted-derived", ".txt");
         FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(distrustFile.getAbsolutePath());
         try {
             EasyBugReporter reporter = spy(new SecurityReporter());
-            analyzeDistrusting("override,constructor", getFiles(), reporter);
+            analyzeMerging(true, getFiles(), reporter);
 
             List<String> lines = Files.readAllLines(distrustFile.toPath(), StandardCharsets.UTF_8);
             assertTrue(lines.contains("override\t" + PACKAGE + "DistrustBase.command()Ljava/lang/String;\t1\t"
                     + PACKAGE + "DistrustOverrider"), lines.toString());
             assertTrue(lines.contains("override\t" + PACKAGE + "DistrustDefault.command()Ljava/lang/String;\t1\t"
                     + PACKAGE + "DistrustDefaultImpl"), lines.toString());
-            assertTrue(lines.contains("constructor\t" + PACKAGE + "DistrustHolder.<init>(Ljava/lang/String;)V"),
-                    lines.toString());
             assertEquals(lines.size(), new HashSet<String>(lines).size());
         } finally {
             FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(null);
@@ -188,15 +165,7 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
     @Test
     public void mergedOverridersSummaryIsApplied() throws Exception {
         EasyBugReporter reporter = spy(new SecurityReporter());
-        analyzeDistrusting("override", getFiles(), reporter);
-
-        for (String method : new String[] {"mergedCommand", "mergedAppendCommand"}) {
-            verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
-                    .inClass("DistrustMergeSamples").inMethod(method).build());
-        }
-
-        reporter = spy(new SecurityReporter());
-        analyzeDistrusting("merge", getFiles(), reporter);
+        analyzeMerging(true, getFiles(), reporter);
 
         //Every implementation in the analyzed code is safe
         for (String method : new String[] {"mergedCommand", "mergedAppendCommand"}) {
@@ -212,15 +181,15 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
 
     @Test
     public void cappedOverridersSummaryIsDistrusted() throws Exception {
-        FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedMaxMerged(0);
+        TaintFrameModelingVisitor.maxMergedOverriders = 0;
         try {
             EasyBugReporter reporter = spy(new SecurityReporter());
-            analyzeDistrusting("merge", getFiles(), reporter);
+            analyzeMerging(true, getFiles(), reporter);
 
             verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
                     .inClass("DistrustMergeSamples").inMethod("mergedCommand").build());
         } finally {
-            FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedMaxMerged(16);
+            TaintFrameModelingVisitor.maxMergedOverriders = 16;
         }
     }
 
@@ -230,7 +199,7 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
         FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(distrustFile.getAbsolutePath());
         try {
             EasyBugReporter reporter = spy(new SecurityReporter());
-            analyzeDistrusting("merge", getFiles(), reporter);
+            analyzeMerging(true, getFiles(), reporter);
 
             List<String> lines = Files.readAllLines(distrustFile.toPath(), StandardCharsets.UTF_8);
             assertTrue(lines.contains("merge\t" + PACKAGE + "DistrustSafeBase.command()Ljava/lang/String;\tmerged"),
@@ -249,10 +218,10 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
     public void prepassResolvesPendingOverriders() throws Exception {
         File distrustFile = File.createTempFile("distrusted-derived", ".txt");
         FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(distrustFile.getAbsolutePath());
-        FindSecBugsGlobalConfig.getInstance().setTaintPrepass(true);
+        TaintDataflowEngine.prepassSkipped = false;
         try {
             EasyBugReporter reporter = spy(new SecurityReporter());
-            analyzeDistrusting("merge", getFiles(), reporter);
+            analyzeMerging(true, getFiles(), reporter);
 
             //The overrider analyzed after the call site is merged, the prepass writes no outcome
             verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
@@ -263,7 +232,6 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
             assertFalse(lines.contains("merge\t" + PACKAGE + "DistrustPendingBase.command()Ljava/lang/String;"
                     + "\tpending"), lines.toString());
         } finally {
-            FindSecBugsGlobalConfig.getInstance().setTaintPrepass(false);
             FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(null);
             distrustFile.delete();
         }
@@ -272,7 +240,7 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
     @Test
     public void mergedImplementorsSummaryIsApplied() throws Exception {
         EasyBugReporter reporter = spy(new SecurityReporter());
-        analyzeDistrusting("none", getFiles(), reporter);
+        analyzeMerging(false, getFiles(), reporter);
 
         for (String method : new String[] {"implementorsCommand", "abstractCommand"}) {
             verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
@@ -280,7 +248,7 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
         }
 
         reporter = spy(new SecurityReporter());
-        analyzeDistrusting("implementors", getFiles(), reporter);
+        analyzeMerging(true, getFiles(), reporter);
 
         //Every implementation in the analyzed code is safe
         for (String method : new String[] {"implementorsCommand", "abstractCommand"}) {
@@ -300,7 +268,7 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
         FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerivedFile(distrustFile.getAbsolutePath());
         try {
             EasyBugReporter reporter = spy(new SecurityReporter());
-            analyzeDistrusting("implementors", getFiles(), reporter);
+            analyzeMerging(true, getFiles(), reporter);
 
             List<String> lines = Files.readAllLines(distrustFile.toPath(), StandardCharsets.UTF_8);
             for (String line : new String[] {
@@ -329,7 +297,7 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
         FindSecBugsGlobalConfig.getInstance().setTaintOverridersFile(overridersFile.getAbsolutePath());
         try {
             EasyBugReporter reporter = spy(new SecurityReporter());
-            analyzeDistrusting("override,implementors", getFiles(), reporter);
+            analyzeMerging(true, getFiles(), reporter);
 
             //The implementation outside the analyzed code is not known
             for (String method : new String[] {"implementorsCommand", "abstractCommand"}) {
@@ -366,7 +334,7 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
         FindSecBugsGlobalConfig.getInstance().setTaintOverridersFile(overridersFile.getAbsolutePath());
         try {
             EasyBugReporter reporter = spy(new SecurityReporter());
-            analyzeDistrusting("implementors", getFiles(), reporter);
+            analyzeMerging(true, getFiles(), reporter);
 
             //The imported summary of the implementation outside the analyzed code is merged
             verify(reporter, never()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
@@ -397,11 +365,11 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
         FindSecBugsGlobalConfig.getInstance().setTaintImportConfigFile(importFile.getAbsolutePath());
         try {
             EasyBugReporter reporter = spy(new SecurityReporter());
-            analyzeDistrusting("none", files, reporter);
+            analyzeMerging(false, files, reporter);
             Set<ClassDescriptor> missingClasses = getMissingClasses(reporter);
 
             reporter = spy(new SecurityReporter());
-            analyzeDistrusting("override", files, reporter);
+            analyzeMerging(true, files, reporter);
 
             //The subtypes of a class outside the classpath are not known
             verify(reporter, atLeastOnce()).doReportBug(bugDefinition().bugType("COMMAND_INJECTION")
@@ -430,13 +398,8 @@ public class TaintDistrustDerivedTest extends BaseDetectorTest {
         return new HashSet<ClassDescriptor>(captor.getAllValues());
     }
 
-    private void analyzeDistrusting(String kinds, String[] files, EasyBugReporter reporter) throws Exception {
-        String defaultKinds = FindSecBugsGlobalConfig.getInstance().getTaintDistrustDerived();
-        FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerived(kinds);
-        try {
-            analyze(files, reporter);
-        } finally {
-            FindSecBugsGlobalConfig.getInstance().setTaintDistrustDerived(defaultKinds);
-        }
+    private void analyzeMerging(boolean merging, String[] files, EasyBugReporter reporter) throws Exception {
+        FindSecBugsGlobalConfig.getInstance().setTaintOverriders(merging);
+        analyze(files, reporter);
     }
 }

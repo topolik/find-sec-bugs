@@ -102,10 +102,7 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
     private final Map<String, Boolean> functionalMethodCache = new ConcurrentHashMap<String, Boolean>();
     private final Map<String, Byte> abstractMethodCache = new ConcurrentHashMap<String, Byte>();
     private static final byte UNKNOWN_ABSTRACT = -1;
-    private boolean distrustingDerivedOverrides;
-    private boolean mergingDerivedOverrides;
-    private boolean mergingImplementors;
-    private boolean distrustingDerivedConstructors;
+    private boolean mergingOverriders;
 
     private transient TaintConfigUsage usage;
     private transient Set<String> excludedKeys = Collections.emptySet();
@@ -580,67 +577,18 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
         return false;
     }
 
-    /**
-     * Sets the kinds of derived summaries not applied to the calls
-     *
-     * @param kinds kinds separated by commas, {@code override}, {@code merge}, {@code implementors} and
-     * {@code constructor}, or {@code none}
-     */
-    public void setDistrustedDerived(String kinds) {
-        distrustingDerivedOverrides = false;
-        mergingDerivedOverrides = false;
-        mergingImplementors = false;
-        distrustingDerivedConstructors = false;
-        if (kinds == null) {
-            return;
-        }
-        for (String kind : kinds.split(",")) {
-            kind = kind.trim();
-            if (kind.equals("override")) {
-                distrustingDerivedOverrides = true;
-            } else if (kind.equals("merge")) {
-                distrustingDerivedOverrides = true;
-                mergingDerivedOverrides = true;
-            } else if (kind.equals("implementors")) {
-                mergingImplementors = true;
-            } else if (kind.equals("constructor")) {
-                distrustingDerivedConstructors = true;
-            } else if (!kind.isEmpty() && !kind.equals("none")) {
-                throw new IllegalArgumentException("Unknown kind of distrusted derived summaries " + kind);
-            }
-        }
+    public void setMergingOverriders(boolean mergingOverriders) {
+        this.mergingOverriders = mergingOverriders;
     }
 
     /**
      * Whether the derived summary of a virtual method declared by a known subtype of the receiver class
-     * is not applied, it may not describe the implementation invoked at runtime
+     * is merged with the summaries of the subtypes, it may not describe the implementation invoked at
+     * runtime, and the call of an abstract method without a summary gets the merged summaries of the
+     * methods implementing it
      */
-    public boolean isDistrustingDerivedOverrides() {
-        return distrustingDerivedOverrides;
-    }
-
-    /**
-     * Whether the derived summary of a virtual method declared by a known subtype of the receiver class
-     * is merged with the summaries of the subtypes, instead of not being applied
-     */
-    public boolean isMergingDerivedOverrides() {
-        return mergingDerivedOverrides;
-    }
-
-    /**
-     * Whether the call of an abstract method without a summary gets the merged summaries of the methods
-     * implementing it
-     */
-    public boolean isMergingImplementors() {
-        return mergingImplementors;
-    }
-
-    /**
-     * Whether the derived summary of a constructor is not applied to the constructed object, the summary
-     * does not describe the receiver
-     */
-    public boolean isDistrustingDerivedConstructors() {
-        return distrustingDerivedConstructors;
+    public boolean isMergingOverriders() {
+        return mergingOverriders;
     }
 
     /**

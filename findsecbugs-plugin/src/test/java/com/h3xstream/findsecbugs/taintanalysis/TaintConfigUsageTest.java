@@ -57,10 +57,8 @@ public class TaintConfigUsageTest extends BaseDetectorTest {
 
         FindSecBugsGlobalConfig config = FindSecBugsGlobalConfig.getInstance();
         boolean defaultOverriders = config.isTaintOverriders();
-        boolean defaultPrepass = config.isTaintPrepass();
         try {
             config.setTaintOverriders(prepass);
-            config.setTaintPrepass(prepass);
             config.setCustomConfigFile(configFile.getCanonicalPath());
             config.setTaintConfigUsage("all");
             config.setTaintConfigUsageFile(usageFile.getAbsolutePath());
@@ -128,7 +126,6 @@ public class TaintConfigUsageTest extends BaseDetectorTest {
             assertEquals(overrides.get("java/lang/Integer.toString()Ljava/lang/String;")[7], "same");
         } finally {
             config.setTaintOverriders(defaultOverriders);
-            config.setTaintPrepass(defaultPrepass);
             config.setCustomConfigFile("");
             config.setTaintConfigUsage(null);
             config.setTaintConfigUsageFile("config-usage.txt");
