@@ -33,8 +33,8 @@ public class MustAliasTest extends BaseDetectorTest {
         EasyBugReporter reporter = analyzeSample();
 
         String[] methods = {
-                "mutatedAliasInLoop", "mutatedBuilderAlias", "mutatedBuilderAliasThroughChain", "mutatedCastAlias",
-                "mutatedFieldLoadedTwice", "mutatedListAlias", "mutatedParameterAlias"
+                "mutatedAliasInLoop", "mutatedAliasOfAlias", "mutatedBuilderAlias", "mutatedBuilderAliasThroughChain",
+                "mutatedCastAlias", "mutatedFieldLoadedTwice", "mutatedListAlias", "mutatedParameterAlias"
         };
 
         for (String method : methods) {
