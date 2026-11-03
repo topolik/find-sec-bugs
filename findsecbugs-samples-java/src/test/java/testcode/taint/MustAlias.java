@@ -27,6 +27,16 @@ public class MustAlias extends HttpServlet {
         resp.getWriter().print(labels.get(0));
     }
 
+    protected void mutatedAliasOfAlias(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        List<String> labels = new ArrayList<>();
+        List<String> alias = labels;
+        List<String> aliasOfAlias = alias;
+
+        aliasOfAlias.add(req.getParameter("label"));
+
+        resp.getWriter().print(labels.get(0));
+    }
+
     protected void mutatedBuilderAlias(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         StringBuilder sb = new StringBuilder();
         StringBuilder alias = sb;
