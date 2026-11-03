@@ -28,16 +28,17 @@ import static org.mockito.Mockito.verify;
 
 public class MustAliasTest extends BaseDetectorTest {
 
+    private static final String[] MUST_ALIAS_METHODS = {
+            "aliasPassedToMutatingCallee", "mutatedAliasInLoop", "mutatedAliasOfAlias", "mutatedArrayAlias",
+            "mutatedBuilderAlias", "mutatedBuilderAliasThroughChain", "mutatedCastAlias", "mutatedFieldLoadedTwice",
+            "mutatedListAlias", "mutatedOriginalReadThroughAlias", "mutatedParameterAlias", "mutatedStackAlias"
+    };
+
     @Test
     public void writeMutationToMustAliases() throws Exception {
-        EasyBugReporter reporter = analyzeSample();
+        EasyBugReporter reporter = analyzeSample(true);
 
-        String[] methods = {
-                "mutatedAliasInLoop", "mutatedAliasOfAlias", "mutatedBuilderAlias", "mutatedBuilderAliasThroughChain",
-                "mutatedCastAlias", "mutatedFieldLoadedTwice", "mutatedListAlias", "mutatedParameterAlias"
-        };
-
-        for (String method : methods) {
+        for (String method : MUST_ALIAS_METHODS) {
             verify(reporter).doReportBug(bugDefinition().bugType("XSS_SERVLET")
                     .inClass("MustAlias").inMethod(method).withPriority("High").build());
         }
@@ -48,23 +49,38 @@ public class MustAliasTest extends BaseDetectorTest {
 
     @Test
     public void doNotWriteMutationToMayAliases() throws Exception {
-        EasyBugReporter reporter = analyzeSample();
+        EasyBugReporter reporter = analyzeSample(true);
 
-        for (String method : new String[] {"mutatedAliasOnOnePath", "mutatedReassignedAlias"}) {
-            for (String priority : new String[] {"High", "Medium"}) {
-                verify(reporter, never()).doReportBug(bugDefinition().bugType("XSS_SERVLET")
-                        .inClass("MustAlias").inMethod(method).withPriority(priority).build());
-            }
-        }
+        verifyNotReported(reporter, "mutatedAliasOnOnePath", "mutatedReassignedAlias", "mutatedReassignedParameter");
     }
 
-    private EasyBugReporter analyzeSample() throws Exception {
+    @Test
+    public void doNotWriteMutationToMustAliasesWhenDisabled() throws Exception {
+        EasyBugReporter reporter = analyzeSample(false);
+
+        for (String method : MUST_ALIAS_METHODS) {
+            if (!method.equals("mutatedFieldLoadedTwice")) {
+                verifyNotReported(reporter, method);
+            }
+        }
+
+        verifyNotReported(reporter, "aliasPassedToUnknownCode");
+
+        // the field is unknown, so the local read from it stays unknown without the write
+
+        verify(reporter).doReportBug(bugDefinition().bugType("XSS_SERVLET")
+                .inClass("MustAlias").inMethod("mutatedFieldLoadedTwice").withPriority("Medium").build());
+        verify(reporter, never()).doReportBug(bugDefinition().bugType("XSS_SERVLET")
+                .inClass("MustAlias").inMethod("mutatedFieldLoadedTwice").withPriority("High").build());
+    }
+
+    private EasyBugReporter analyzeSample(boolean mustAlias) throws Exception {
         String[] files = { getClassFilePath("testcode/taint/MustAlias") };
 
         EasyBugReporter reporter = spy(new SecurityReporter());
 
         boolean defaultMustAlias = FindSecBugsGlobalConfig.getInstance().isTaintMustAlias();
-        FindSecBugsGlobalConfig.getInstance().setTaintMustAlias(true);
+        FindSecBugsGlobalConfig.getInstance().setTaintMustAlias(mustAlias);
 
         try {
             analyze(files, reporter);
@@ -73,5 +89,14 @@ public class MustAliasTest extends BaseDetectorTest {
         }
 
         return reporter;
+    }
+
+    private void verifyNotReported(EasyBugReporter reporter, String... methods) {
+        for (String method : methods) {
+            for (String priority : new String[] {"High", "Medium"}) {
+                verify(reporter, never()).doReportBug(bugDefinition().bugType("XSS_SERVLET")
+                        .inClass("MustAlias").inMethod(method).withPriority(priority).build());
+            }
+        }
     }
 }
