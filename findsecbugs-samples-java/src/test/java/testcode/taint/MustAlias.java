@@ -37,6 +37,41 @@ public class MustAlias extends HttpServlet {
         resp.getWriter().print(labels.get(0));
     }
 
+    protected void mutatedOriginalReadThroughAlias(HttpServletRequest req, HttpServletResponse resp)
+            throws IOException {
+
+        List<String> labels = new ArrayList<>();
+        List<String> alias = labels;
+
+        labels.add(req.getParameter("label"));
+
+        resp.getWriter().print(alias.get(0));
+    }
+
+    protected void mutatedArrayAlias(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String[] labels = new String[1];
+        String[] alias = labels;
+
+        alias[0] = req.getParameter("label");
+
+        resp.getWriter().print(labels[0]);
+    }
+
+    protected void aliasPassedToMutatingCallee(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        List<String> labels = new ArrayList<>();
+        List<String> alias = labels;
+
+        addLabel(alias, req.getParameter("label"));
+
+        resp.getWriter().print(labels.get(0));
+    }
+
+    protected void mutatedStackAlias(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        List<String> labels = new ArrayList<>();
+
+        resp.getWriter().print(labels.get(addLabel(labels, req.getParameter("label"))));
+    }
+
     protected void mutatedBuilderAlias(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         StringBuilder sb = new StringBuilder();
         StringBuilder alias = sb;
@@ -133,6 +168,12 @@ public class MustAlias extends HttpServlet {
         addToReassigned(labels, req.getParameter("label"));
 
         resp.getWriter().print(labels.get(0));
+    }
+
+    private int addLabel(List<String> labels, String label) {
+        labels.add(label);
+
+        return labels.size() - 1;
     }
 
     private void addThroughAlias(List<String> labels, String label) {
