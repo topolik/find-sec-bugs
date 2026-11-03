@@ -48,6 +48,7 @@ public class FindSecBugsGlobalConfig {
     private boolean taintOverriders;
     private String taintDistrustDerivedFile;
     private String taintOverridersFile;
+    private boolean taintMustAlias;
 
     protected FindSecBugsGlobalConfig() {
         debugOutputTaintConfigs = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.outputconfigs", Boolean.FALSE.toString()));
@@ -65,6 +66,7 @@ public class FindSecBugsGlobalConfig {
         taintOverriders = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.overriders", Boolean.FALSE.toString()));
         taintDistrustDerivedFile = loadFromSystem("findsecbugs.taint.distrustderivedfile", null);
         taintOverridersFile = loadFromSystem("findsecbugs.taint.overridersfile", null);
+        taintMustAlias = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.mustalias", Boolean.FALSE.toString()));
     }
 
     public String loadFromSystem(String key, String defaultValue) {
@@ -238,6 +240,20 @@ public class FindSecBugsGlobalConfig {
 
     public void setTaintOverriders(boolean taintOverriders) {
         this.taintOverriders = taintOverriders;
+    }
+
+    /**
+     * Write the taint of a mutated object to every local and stack value referring to the same
+     * object on all paths, found by the value numbering of the method. Without it, a mutation is
+     * written back only to the local the mutated value was loaded from, so {@code b = a; b.add(t)}
+     * leaves {@code a} unchanged. Disabled by default
+     */
+    public boolean isTaintMustAlias() {
+        return taintMustAlias;
+    }
+
+    public void setTaintMustAlias(boolean taintMustAlias) {
+        this.taintMustAlias = taintMustAlias;
     }
 
     /**
