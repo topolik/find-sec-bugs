@@ -5,6 +5,8 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -166,6 +168,32 @@ public class MustAlias extends HttpServlet {
         List<String> labels = new ArrayList<>();
 
         addToReassigned(labels, req.getParameter("label"));
+
+        resp.getWriter().print(labels.get(0));
+    }
+
+    /**
+     * Known false positive, clearing one alias keeps the taint of the others
+     */
+    protected void clearedAlias(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        List<String> labels = new ArrayList<>();
+        Collection<String> alias = labels;
+
+        labels.add(req.getParameter("label"));
+        alias.clear();
+
+        resp.getWriter().print(labels.get(0));
+    }
+
+    /**
+     * Known false positive, filling one alias keeps the taint of the others
+     */
+    protected void filledAlias(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        List<String> labels = new ArrayList<>();
+        List<String> alias = labels;
+
+        labels.add(req.getParameter("label"));
+        Collections.fill(alias, "label");
 
         resp.getWriter().print(labels.get(0));
     }

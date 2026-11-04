@@ -1291,8 +1291,9 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
     }
 
     /**
-     * Writes the taint of a mutated object to the other locals and stack values referring to the
-     * same object on all paths, see {@link FindSecBugsGlobalConfig#isTaintMustAlias}
+     * Merges the taint of a mutated object into the other locals and stack values referring to the
+     * same object on all paths, see {@link FindSecBugsGlobalConfig#isTaintMustAlias}, a merge never
+     * lowers an alias, even after a mutation replacing the taint of the mutated value, like clear
      *
      * @param valueTaint new taint of the mutated object
      * @param stackValue mutated stack value, its local is written by {@link #setLocalVariableTaint}
@@ -1330,9 +1331,10 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                 if (index == writtenIndex || !objects.contains(valueNumberFrame.getValue(index))) {
                     continue;
                 }
-                Taint aliasTaint = new Taint(valueTaint);
+                Taint localAlias = frame.getValue(index);
+                Taint aliasTaint = Taint.merge(valueTaint, localAlias);
                 aliasTaint.setVariableIndex(index);
-                aliasTaint.setRealInstanceClass(frame.getValue(index).getRealInstanceClass());
+                aliasTaint.setRealInstanceClass(localAlias.getRealInstanceClass());
                 frame.setValue(index, aliasTaint);
                 written = true;
             }
@@ -1342,7 +1344,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                     continue;
                 }
                 Taint stackAlias = frame.getStackValue(index);
-                Taint aliasTaint = new Taint(valueTaint);
+                Taint aliasTaint = Taint.merge(valueTaint, stackAlias);
                 if (stackAlias.hasValidVariableIndex()) {
                     aliasTaint.setVariableIndex(stackAlias.getVariableIndex());
                 } else {
