@@ -55,6 +55,21 @@ public class MustAliasTest extends BaseDetectorTest {
     }
 
     @Test
+    public void doNotLowerTaintOfMustAliases() throws Exception {
+
+        // a mutation replacing the taint of one alias, like clear, keeps the taint of the others as when disabled
+
+        for (boolean mustAlias : new boolean[] {true, false}) {
+            EasyBugReporter reporter = analyzeSample(mustAlias);
+
+            for (String method : new String[] {"clearedAlias", "filledAlias"}) {
+                verify(reporter).doReportBug(bugDefinition().bugType("XSS_SERVLET")
+                        .inClass("MustAlias").inMethod(method).withPriority("High").build());
+            }
+        }
+    }
+
+    @Test
     public void doNotWriteMutationToMustAliasesWhenDisabled() throws Exception {
         EasyBugReporter reporter = analyzeSample(false);
 
