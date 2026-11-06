@@ -27,6 +27,7 @@ public class UnvalidatedRedirectDetector extends LegacyInjectionDetector {
 
     public UnvalidatedRedirectDetector(BugReporter bugReporter) {
         super(bugReporter);
+        loadConfiguredSinks("unvalidated-redirect.txt", "UNVALIDATED_REDIRECT");
     }
 
     @Override
