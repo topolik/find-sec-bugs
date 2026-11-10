@@ -18,6 +18,7 @@
 package com.h3xstream.findsecbugs.injection;
 
 import com.h3xstream.findsecbugs.taintanalysis.TaintDataflow;
+import com.h3xstream.findsecbugs.taintanalysis.TaintDataflowEngine;
 import com.h3xstream.findsecbugs.taintanalysis.TaintFrame;
 import edu.umd.cs.findbugs.BugReporter;
 import edu.umd.cs.findbugs.Detector;
@@ -107,6 +108,7 @@ public abstract class AbstractTaintDetector implements Detector {
 
     @Override
     public void report() {
+        TaintDataflowEngine.writeConfigUsage();
     }
     
     protected void analyzeMethod(ClassContext classContext, Method method)

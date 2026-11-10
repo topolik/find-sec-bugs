@@ -20,6 +20,7 @@ package com.h3xstream.findsecbugs.injection;
 import com.h3xstream.findsecbugs.BCELUtil;
 import com.h3xstream.findsecbugs.common.ByteCode;
 import com.h3xstream.findsecbugs.taintanalysis.Taint;
+import com.h3xstream.findsecbugs.taintanalysis.TaintDataflowEngine;
 import com.h3xstream.findsecbugs.taintanalysis.TaintFrame;
 import com.h3xstream.findsecbugs.taintanalysis.TaintTag;
 import edu.umd.cs.findbugs.BugReporter;
@@ -76,6 +77,7 @@ public abstract class AbstractInjectionDetector extends AbstractTaintDetector {
         for (InjectionSink injectionSink : injectionSinksToReport) {
             bugReporter.reportBug(injectionSink.generateBugInstance(false));
         }
+        TaintDataflowEngine.writeConfigUsage();
     }
     
     @Override

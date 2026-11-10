@@ -38,9 +38,13 @@ import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.io.UnsupportedEncodingException;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.logging.Level;
@@ -87,9 +91,11 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     };
     private static TaintDataflowEngine instance;
     private final TaintConfig taintConfig = new TaintConfig();
+    private int excludedKeyCount;
     @SuppressFBWarnings(value="MS_SHOULD_BE_REFACTORED_TO_BE_FINAL", justification="Can't be final because FileOutputStream needs a try-catch.")
     protected static Writer writer = null;
     private static List<TaintFrameAdditionalVisitor> visitors = new ArrayList<TaintFrameAdditionalVisitor>();
+    private static boolean configUsageShutdownHook;
 
 
     static {
@@ -112,6 +118,13 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
      * Constructs the engine and loads all configured method summaries
      */
     public TaintDataflowEngine() {
+        if (CONFIG.isTaintConfigUsage()) {
+            taintConfig.setUsage(new TaintConfigUsage(CONFIG.isTaintConfigUsageAll()));
+            registerConfigUsageShutdownHook();
+            LOGGER.log(Level.INFO, "Taint config usage accounting enabled (mode {0}), output to {1}", new Object[] {
+                CONFIG.isTaintConfigUsageAll() ? "all" : "used",
+                new File(CONFIG.getTaintConfigUsageFile()).getAbsolutePath()});
+        }
         for (String path : TAINT_CONFIG_FILENAMES) {
             loadTaintConfig(TAINT_CONFIG_PATH.concat(path), true);
         }
@@ -126,11 +139,21 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
             loadTaintConfig(TAINT_CONFIG_PATH.concat("tainted-system-variables.txt"), false);
             LOGGER.info("System variables are considered to be tainted");
         }
+        String excludeConfigKeys = CONFIG.getTaintExcludeConfigKeys();
+        if (excludeConfigKeys != null && !excludeConfigKeys.isEmpty()) {
+            taintConfig.setExcludedKeys(loadExcludedKeys(excludeConfigKeys));
+        }
         String customConfigFile = CONFIG.getCustomConfigFile();
         if (customConfigFile != null && !customConfigFile.isEmpty()) {
             for (String configFile : customConfigFile.split(File.pathSeparator)) {
                 addCustomConfig(configFile);
             }
+        }
+        if (excludeConfigKeys != null && !excludeConfigKeys.isEmpty()) {
+            LOGGER.log(Level.INFO, "Excluded {0} entries ({1} distinct keys) from custom taint config, {2} keys listed in {3}",
+                    new Object[] {String.valueOf(taintConfig.getExcludedEntries()),
+                    String.valueOf(taintConfig.getExcludedMatches()), String.valueOf(excludedKeyCount),
+                    excludeConfigKeys});
         }
         if (!CONFIG.isTaintedMainArgument()) {
             LOGGER.info("The argument of the main method is not considered tainted");
@@ -145,12 +168,28 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         assert path != null && !path.isEmpty();
 
         try (InputStream stream = getClass().getClassLoader().getResourceAsStream(path)) {
-            taintConfig.load(stream, checkRewrite);
+            taintConfig.load(stream, checkRewrite, path, false);
         } catch (IOException ex) {
             assert false : ex.getMessage();
         }
     }
     
+    private Set<String> loadExcludedKeys(String path) {
+        Set<String> keys = new HashSet<String>();
+        try {
+            for (String line : Files.readAllLines(new File(path).toPath(), StandardCharsets.UTF_8)) {
+                String key = line.trim();
+                if (!key.isEmpty() && !key.startsWith("#")) {
+                    keys.add(key);
+                }
+            }
+        } catch (IOException ex) {
+            throw new RuntimeException("Cannot load excluded taint config keys from " + path, ex);
+        }
+        excludedKeyCount = keys.size();
+        return keys;
+    }
+
     private void addCustomConfig(String path) {
         File file = new File(path);
         try (InputStream stream = file.exists()
@@ -162,7 +201,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
                         file.getAbsolutePath(), path);
                 throw new IllegalArgumentException(message);
             }
-            taintConfig.load(stream, false);
+            taintConfig.load(stream, false, path, true);
             LOGGER.log(Level.INFO, "Custom taint config loaded from {0}", path);
         } catch (IOException ex) {
             throw new RuntimeException("Cannot load custom taint config from " + path, ex);
@@ -294,6 +333,35 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
             writer.append('|');
             writer.append(taint.getTagsToRemove().stream().map(TaintTag::name).collect(Collectors.joining(",", "-", "")));
         }
+    }
+
+    /**
+     * Writes the taint config usage of the current engine, if enabled and changed since the last write
+     */
+    public static void writeConfigUsage() {
+        TaintDataflowEngine engine = instance;
+        if (engine == null) {
+            return;
+        }
+        TaintConfigUsage usage = engine.taintConfig.getUsage();
+        if (usage != null) {
+            synchronized (usage) {
+                usage.write(engine.taintConfig, CONFIG.getTaintConfigUsageFile());
+            }
+        }
+    }
+
+    private static synchronized void registerConfigUsageShutdownHook() {
+        if (configUsageShutdownHook) {
+            return;
+        }
+        configUsageShutdownHook = true;
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            @Override
+            public void run() {
+                writeConfigUsage();
+            }
+        }, "taint-config-usage"));
     }
 
     @Override

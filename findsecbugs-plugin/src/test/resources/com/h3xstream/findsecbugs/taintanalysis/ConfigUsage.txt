@@ -1,0 +1,13 @@
+testcode/taint/configusage/ConfigUsageSamples.neverCalled()Ljava/lang/String;:SAFE
+testcode/taint/configusage/ConfigUsageSamples.constant()Ljava/lang/String;:SAFE
+testcode/taint/configusage/ConfigUsageSamples.number(Ljava/lang/String;)Ljava/lang/Integer;:SAFE
+testcode/taint/configusage/ConfigUsageSamples.count(Ljava/util/List;)Ljava/lang/Integer;:SAFE
+testcode/taint/configusage/ConfigUsageSamples.echo(Ljava/lang/String;)Ljava/lang/String;:SAFE
+testcode/taint/configusage/ConfigUsageSamples.parameter(Ljavax/servlet/http/HttpServletRequest;)Ljava/lang/String;:SAFE
+testcode/taint/configusage/ConfigUsageService.getName()Ljava/lang/String;:SAFE
+testcode/taint/configusage/ConfigUsageService.lookup("safe"):SAFE@testcode/taint/configusage/ConfigUsageSamples
+testcode/taint/configusage/ConfigUsageBase.label()Ljava/lang/String;:SAFE
+testcode/taint/configusage/ConfigUsageHolder.<init>(Ljava/lang/String;)V:0#1,2
+javax/servlet/http/HttpServletRequest.getQueryString()Ljava/lang/String;:SAFE
+java/lang/Integer.toString()Ljava/lang/String;:SAFE
+Ltestcode/taint/configusage/ConfigUsageUnrelated;:SAFE

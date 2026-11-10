@@ -41,6 +41,9 @@ public class FindSecBugsGlobalConfig {
     private String customConfigFile;
     private boolean taintedMainArgument;
     private boolean reportPotentialXssWrongContext;
+    private String taintConfigUsage;
+    private String taintConfigUsageFile;
+    private String taintExcludeConfigKeys;
 
     protected FindSecBugsGlobalConfig() {
         debugOutputTaintConfigs = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.outputconfigs", Boolean.FALSE.toString()));
@@ -51,6 +54,9 @@ public class FindSecBugsGlobalConfig {
         debugTaintState = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.debugtaintstate", Boolean.FALSE.toString()));
         workaroundVisitInvokeDynamic = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.workaroundvisitinvokedynamic", Boolean.FALSE.toString()));
         verboseLocationReport = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.verboselocationreport", Boolean.FALSE.toString()));
+        taintConfigUsage = loadFromSystem("findsecbugs.taint.configusage", null);
+        taintConfigUsageFile = loadFromSystem("findsecbugs.taint.configusagefile", "config-usage.txt");
+        taintExcludeConfigKeys = loadFromSystem("findsecbugs.taint.excludeconfigkeys", null);
     }
 
     public String loadFromSystem(String key, String defaultValue) {
@@ -160,6 +166,41 @@ public class FindSecBugsGlobalConfig {
 
     public void setTaintedMainArgument(boolean taintedMainArguments) {
         this.taintedMainArgument = taintedMainArguments;
+    }
+
+    /**
+     * Whether the usage of the custom taint config entries is recorded,
+     * "true" writes the used entries only, "all" writes every custom entry
+     */
+    public boolean isTaintConfigUsage() {
+        return "true".equalsIgnoreCase(taintConfigUsage) || isTaintConfigUsageAll();
+    }
+
+    public boolean isTaintConfigUsageAll() {
+        return "all".equalsIgnoreCase(taintConfigUsage);
+    }
+
+    public void setTaintConfigUsage(String taintConfigUsage) {
+        this.taintConfigUsage = taintConfigUsage;
+    }
+
+    public String getTaintConfigUsageFile() {
+        return taintConfigUsageFile;
+    }
+
+    public void setTaintConfigUsageFile(String taintConfigUsageFile) {
+        this.taintConfigUsageFile = taintConfigUsageFile;
+    }
+
+    /**
+     * File listing the keys dropped from the custom taint configs, one key per line
+     */
+    public String getTaintExcludeConfigKeys() {
+        return taintExcludeConfigKeys;
+    }
+
+    public void setTaintExcludeConfigKeys(String taintExcludeConfigKeys) {
+        this.taintExcludeConfigKeys = taintExcludeConfigKeys;
     }
 
     public boolean isReportPotentialXssWrongContext() {
