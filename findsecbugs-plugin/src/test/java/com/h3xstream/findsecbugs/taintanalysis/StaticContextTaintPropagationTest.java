@@ -29,6 +29,16 @@ public class StaticContextTaintPropagationTest extends BaseDetectorTest {
 
     @Test
     public void testBackPropagation() throws Exception {
+        assertBackPropagation(false);
+    }
+
+    @Test
+    public void testBackPropagationWithPrepass() throws Exception {
+        //The static fields written by the prepass do not reach the static initializer
+        assertBackPropagation(true);
+    }
+
+    private void assertBackPropagation(boolean prepass) throws Exception {
         //Locate test code
         String[] files = {
                 getClassFilePath("testcode/taint/StaticContextTaintPropagation"),
@@ -36,8 +46,14 @@ public class StaticContextTaintPropagationTest extends BaseDetectorTest {
         };
 
         //Run the analysis
+        boolean defaultOverriders = FindSecBugsGlobalConfig.getInstance().isTaintOverriders();
+        FindSecBugsGlobalConfig.getInstance().setTaintOverriders(prepass);
         EasyBugReporter reporter = spy(new SecurityReporter());
-        analyze(files, reporter);
+        try {
+            analyze(files, reporter);
+        } finally {
+            FindSecBugsGlobalConfig.getInstance().setTaintOverriders(defaultOverriders);
+        }
 
 
         verify(reporter, never()).doReportBug(

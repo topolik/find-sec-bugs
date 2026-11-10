@@ -96,10 +96,21 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     private final TaintConfig taintConfig = new TaintConfig();
     private int excludedKeyCount;
     private boolean derivedConfigImported;
+    private boolean prepassStarted;
+    private Map<String, Taint> staticFieldsTaint;
+    private static boolean prepass;
+    /**
+     * Whether {@link #startPrepass()} skips the prepass, set only by the tests of the summaries pending
+     * without it
+     */
+    static boolean prepassSkipped;
     @SuppressFBWarnings(value="MS_SHOULD_BE_REFACTORED_TO_BE_FINAL", justification="Can't be final because FileOutputStream needs a try-catch.")
     protected static Writer writer = null;
     private static List<TaintFrameAdditionalVisitor> visitors = new ArrayList<TaintFrameAdditionalVisitor>();
     private static boolean configUsageShutdownHook;
+    private static final Set<String> distrustedSummaries = new HashSet<String>();
+    private static String distrustFileName;
+    private static Writer distrustWriter;
 
 
     static {
@@ -162,6 +173,34 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         if (!CONFIG.isTaintedMainArgument()) {
             LOGGER.info("The argument of the main method is not considered tainted");
         }
+        if (CONFIG.isTaintOverriders()) {
+            taintConfig.setMergingOverriders(true);
+            LOGGER.info("The derived summaries are merged with the summaries of the overriding methods");
+            String overridersFile = CONFIG.getTaintOverridersFile();
+            if (isSet(overridersFile)) {
+                loadOverriders(overridersFile);
+            }
+        } else if (isSet(CONFIG.getTaintOverridersFile()) || isSet(CONFIG.getTaintDistrustDerivedFile())) {
+            LOGGER.warning("The derived summaries settings are ignored, findsecbugs.taint.overriders is not enabled");
+        }
+    }
+
+    private static boolean isSet(String value) {
+        return value != null && !value.isEmpty();
+    }
+
+    private void loadOverriders(String overridersFile) {
+        for (String path : overridersFile.split(File.pathSeparator)) {
+            try (InputStream stream = path.endsWith(".gz")
+                    ? new GZIPInputStream(new FileInputStream(path))
+                    : new FileInputStream(path)) {
+                taintConfig.loadOverriders(stream);
+            } catch (IOException ex) {
+                throw new RuntimeException("Cannot load overriders from " + path, ex);
+            }
+        }
+        LOGGER.log(Level.INFO, "Loaded the overriders of {0} methods from {1}",
+                new Object[] {String.valueOf(taintConfig.getExternalOverriderCount()), overridersFile});
     }
 
     public static void registerAdditionalVisitor(TaintFrameAdditionalVisitor visitor) {
@@ -271,6 +310,47 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     }
 
     /**
+     * Starts the prepass deriving the summaries of all analyzed classes, once per analysis. Until
+     * {@link #finishPrepass()}, the derived summaries and the distrusted summaries are not written and
+     * the config usage is not recorded. The prepass leaves only the derived summaries behind.
+     *
+     * @return false if the overriders are disabled or the prepass already started
+     */
+    public static boolean startPrepass() {
+        if (!CONFIG.isTaintOverriders() || prepassSkipped || instance.prepassStarted) {
+            return false;
+        }
+        instance.prepassStarted = true;
+        // the static initializers must not read the static fields written by the prepass
+        instance.staticFieldsTaint = instance.taintConfig.copyStaticFieldsTaint();
+        prepass = true;
+        return true;
+    }
+
+    public static void finishPrepass() {
+        prepass = false;
+        if (instance.staticFieldsTaint != null) {
+            instance.taintConfig.restoreStaticFieldsTaint(instance.staticFieldsTaint);
+            instance.staticFieldsTaint = null;
+        }
+    }
+
+    /**
+     * @return true while the prepass derives the summaries
+     */
+    public static boolean isPrepassing() {
+        return prepass;
+    }
+
+    /**
+     * @return true if the prepass of the analysis has derived the summaries, so the dataflows cached by
+     * the prepass are outdated
+     */
+    public static boolean isPrepassed() {
+        return instance.prepassStarted && !prepass;
+    }
+
+    /**
      * Describes the derived summary of the method, used to detect a change between two analyses
      */
     public static String getSummaryKey(String slashedMethodName) {
@@ -313,7 +393,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
      * Writes the derived summary of the method, if enabled
      */
     public static void writeDerivedConfig(String slashedMethodName) {
-        if (!CONFIG.isDebugOutputTaintConfigs() || writer == null) {
+        if (!CONFIG.isDebugOutputTaintConfigs() || writer == null || prepass) {
             return;
         }
         TaintMethodConfig derivedConfig = instance.taintConfig.get(slashedMethodName);
@@ -343,6 +423,63 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
             writer.flush();
         } catch (IOException ex) {
             AnalysisContext.logError("Cannot write derived configs", ex);
+        }
+    }
+
+    /**
+     * Writes the derived summary not applied to a call once, if enabled
+     *
+     * @param kind override or constructor
+     * @param methodName slashed class name with the method id
+     * @param overriders known subtypes declaring the method, null if not relevant
+     * @param resolved false if the subtypes are not known
+     */
+    public static void writeDistrustedSummary(String kind, String methodName, Set<String> overriders,
+            boolean resolved) {
+        StringBuilder line = new StringBuilder(kind).append('\t').append(methodName);
+        if (!resolved) {
+            line.append("\t?");
+        } else if (overriders != null) {
+            line.append('\t').append(overriders.size()).append('\t')
+                    .append(overriders.stream().limit(10).collect(Collectors.joining(",")));
+        }
+        writeDistrustLine(line.toString());
+    }
+
+    /**
+     * Writes the outcome of merging the summaries of the overriding methods once, if enabled
+     *
+     * @param kind merge for a derived summary merged with the overriding methods, implementors for
+     * an abstract method
+     * @param methodName slashed class name with the method id
+     * @param outcome merged, or the reason the summaries were not merged
+     */
+    public static void writeMergedSummary(String kind, String methodName, String outcome) {
+        writeDistrustLine(kind + '\t' + methodName + '\t' + outcome);
+    }
+
+    private static synchronized void writeDistrustLine(String line) {
+        String fileName = CONFIG.getTaintDistrustDerivedFile();
+        if (fileName == null || fileName.isEmpty() || prepass) {
+            return;
+        }
+        try {
+            if (!fileName.equals(distrustFileName)) {
+                if (distrustWriter != null) {
+                    distrustWriter.close();
+                }
+                distrustedSummaries.clear();
+                distrustFileName = fileName;
+                distrustWriter = new BufferedWriter(new OutputStreamWriter(
+                        new FileOutputStream(fileName), StandardCharsets.UTF_8));
+            }
+            if (!distrustedSummaries.add(line)) {
+                return;
+            }
+            distrustWriter.append(line).append('\n');
+            distrustWriter.flush();
+        } catch (IOException ex) {
+            AnalysisContext.logError("Cannot write distrusted derived summaries", ex);
         }
     }
 

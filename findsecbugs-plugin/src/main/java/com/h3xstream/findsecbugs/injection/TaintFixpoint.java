@@ -19,13 +19,18 @@ package com.h3xstream.findsecbugs.injection;
 
 import com.h3xstream.findsecbugs.taintanalysis.TaintDataflow;
 import com.h3xstream.findsecbugs.taintanalysis.TaintDataflowEngine;
+import edu.umd.cs.findbugs.ba.AnalysisContext;
 import edu.umd.cs.findbugs.ba.ClassContext;
+import edu.umd.cs.findbugs.ba.XClass;
 import edu.umd.cs.findbugs.bcel.BCELUtil;
 import edu.umd.cs.findbugs.classfile.CheckedAnalysisException;
+import edu.umd.cs.findbugs.classfile.ClassDescriptor;
 import edu.umd.cs.findbugs.classfile.Global;
 import edu.umd.cs.findbugs.classfile.IAnalysisCache;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
+import edu.umd.cs.findbugs.util.TopologicalSort;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
@@ -57,6 +62,10 @@ import org.apache.bcel.generic.PUTSTATIC;
  * this graph are analyzed with the dependencies first, the cyclic ones repeatedly until nothing
  * changes or the round limit is reached. The resulting order is also used to look for the sinks once,
  * so the sinks of the callees are known at the call sites.
+ * <p>
+ * With the prepass enabled, the first analysis derives the summaries of all application classes in
+ * the order SpotBugs uses, callees first, before the detectors analyze the first class. A call site
+ * then knows the summaries of the classes analyzed after its class, such as the overriding methods.
  */
 class TaintFixpoint {
 
@@ -82,11 +91,18 @@ class TaintFixpoint {
      * the analysis order
      */
     static synchronized List<Method> analyze(ClassContext classContext) {
+        if (TaintDataflowEngine.startPrepass()) {
+            try {
+                prepass();
+            } finally {
+                TaintDataflowEngine.finishPrepass();
+            }
+        }
         if (classContext != lastClassContext) {
             TaintFixpoint fixpoint = new TaintFixpoint(classContext);
             fixpoint.buildDependencies();
             List<List<Method>> components = fixpoint.getComponents();
-            fixpoint.computeDataflows(components);
+            fixpoint.computeDataflows(components, TaintDataflowEngine.isPrepassed());
             List<Method> order = new ArrayList<Method>();
             for (List<Method> component : components) {
                 order.addAll(component);
@@ -95,6 +111,47 @@ class TaintFixpoint {
             lastOrder = Collections.unmodifiableList(order);
         }
         return lastOrder;
+    }
+
+    private static void prepass() {
+        AnalysisContext context = AnalysisContext.currentAnalysisContext();
+        final IAnalysisCache cache = Global.getAnalysisCache();
+        List<ClassDescriptor> classes = new ArrayList<ClassDescriptor>();
+        for (XClass xClass : context.getSubtypes2().getXClassCollection()) {
+            if (context.isApplicationClass(xClass.getClassDescriptor())) {
+                classes.add(xClass.getClassDescriptor());
+            }
+        }
+        Collections.sort(classes);
+        classes = TopologicalSort.sortByCallGraph(classes, new TopologicalSort.OutEdges<ClassDescriptor>() {
+            @Override
+            public Collection<ClassDescriptor> getOutEdges(ClassDescriptor descriptor) {
+                try {
+                    return cache.getClassAnalysis(XClass.class, descriptor).getCalledClassDescriptors();
+                } catch (CheckedAnalysisException e) {
+                    return Collections.emptyList();
+                }
+            }
+        });
+        ClassDescriptor classBeingAnalyzed = context.getClassBeingAnalyzed();
+        try {
+            for (ClassDescriptor descriptor : classes) {
+                try {
+                    context.setClassBeingAnalyzed(descriptor);
+                    TaintFixpoint fixpoint = new TaintFixpoint(cache.getClassAnalysis(ClassContext.class, descriptor));
+                    fixpoint.buildDependencies();
+                    fixpoint.computeDataflows(fixpoint.getComponents(), false);
+                } catch (CheckedAnalysisException e) {
+                    // the detectors report it when they analyze the class
+                } catch (RuntimeException e) {
+                    // the same
+                }
+            }
+        } finally {
+            if (classBeingAnalyzed != null) {
+                context.setClassBeingAnalyzed(classBeingAnalyzed);
+            }
+        }
     }
 
     private void buildDependencies() {
@@ -241,12 +298,19 @@ class TaintFixpoint {
         return components;
     }
 
-    private void computeDataflows(List<List<Method>> components) {
+    /**
+     * @param reanalyze true to replace the cached dataflows, derived by the prepass
+     */
+    private void computeDataflows(List<List<Method>> components, boolean reanalyze) {
         IAnalysisCache cache = Global.getAnalysisCache();
         for (List<Method> component : components) {
             for (Method method : component) {
                 try {
-                    cache.getMethodAnalysis(TaintDataflow.class, getDescriptor(method));
+                    if (reanalyze) {
+                        TaintDataflowEngine.reanalyze(cache, getDescriptor(method));
+                    } else {
+                        cache.getMethodAnalysis(TaintDataflow.class, getDescriptor(method));
+                    }
                 } catch (CheckedAnalysisException e) {
                     // cached by SpotBugs, the detectors report it when they request the dataflow
                 } catch (RuntimeException e) {

@@ -45,6 +45,9 @@ public class FindSecBugsGlobalConfig {
     private String taintConfigUsageFile;
     private String taintExcludeConfigKeys;
     private String taintImportConfigFile;
+    private boolean taintOverriders;
+    private String taintDistrustDerivedFile;
+    private String taintOverridersFile;
 
     protected FindSecBugsGlobalConfig() {
         debugOutputTaintConfigs = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.outputconfigs", Boolean.FALSE.toString()));
@@ -59,6 +62,9 @@ public class FindSecBugsGlobalConfig {
         taintConfigUsageFile = loadFromSystem("findsecbugs.taint.configusagefile", "config-usage.txt");
         taintExcludeConfigKeys = loadFromSystem("findsecbugs.taint.excludeconfigkeys", null);
         taintImportConfigFile = loadFromSystem("findsecbugs.taint.importconfigfile", null);
+        taintOverriders = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.overriders", Boolean.FALSE.toString()));
+        taintDistrustDerivedFile = loadFromSystem("findsecbugs.taint.distrustderivedfile", null);
+        taintOverridersFile = loadFromSystem("findsecbugs.taint.overridersfile", null);
     }
 
     public String loadFromSystem(String key, String defaultValue) {
@@ -215,6 +221,48 @@ public class FindSecBugsGlobalConfig {
 
     public void setTaintImportConfigFile(String taintImportConfigFile) {
         this.taintImportConfigFile = taintImportConfigFile;
+    }
+
+    /**
+     * Apply the summaries of the overriding methods to the calls: a virtual call merges the derived
+     * summary with the summaries of the overriding methods, the call of an abstract method without a
+     * summary merges the summaries of its implementors, and a prepass derives the summaries of all
+     * analyzed classes before the detectors run, see {@link #getTaintOverridersFile}. Disabled by
+     * default: scanning one module at a time, the abstract methods merge only the implementors the
+     * module knows, and the implementors of the other modules pay off only with their summaries
+     * imported, see {@link #getTaintImportConfigFile}
+     */
+    public boolean isTaintOverriders() {
+        return taintOverriders;
+    }
+
+    public void setTaintOverriders(boolean taintOverriders) {
+        this.taintOverriders = taintOverriders;
+    }
+
+    /**
+     * File listing the distrusted derived summaries with their overriders and the outcomes of the
+     * merges, written only with {@link #isTaintOverriders}
+     */
+    public String getTaintDistrustDerivedFile() {
+        return taintDistrustDerivedFile;
+    }
+
+    public void setTaintDistrustDerivedFile(String taintDistrustDerivedFile) {
+        this.taintDistrustDerivedFile = taintDistrustDerivedFile;
+    }
+
+    /**
+     * Files listing the subtypes declaring the methods of the classes outside the analyzed code,
+     * separated by the path separator, see {@link com.h3xstream.findsecbugs.taintanalysis.TaintConfig#loadOverriders}.
+     * Applies only with {@link #isTaintOverriders}
+     */
+    public String getTaintOverridersFile() {
+        return taintOverridersFile;
+    }
+
+    public void setTaintOverridersFile(String taintOverridersFile) {
+        this.taintOverridersFile = taintOverridersFile;
     }
 
     public boolean isReportPotentialXssWrongContext() {

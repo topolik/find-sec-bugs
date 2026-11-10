@@ -17,9 +17,11 @@
  */
 package com.h3xstream.findsecbugs;
 
+import com.h3xstream.findsecbugs.taintanalysis.TaintConfig;
 import org.testng.annotations.Test;
 
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
 
 public class FindSecBugsGlobalConfigTest {
 
@@ -27,6 +29,13 @@ public class FindSecBugsGlobalConfigTest {
     public void version() {
         FindSecBugsGlobalConfig.getInstance().setFindSecBugsVersion("1.3.3.7");
         assertEquals(FindSecBugsGlobalConfig.getInstance().getFindSecBugsVersion(),"1.3.3.7");
+    }
+
+    @Test
+    public void derivedSummariesDefaults() {
+        FindSecBugsGlobalConfig config = new FindSecBugsGlobalConfig();
+        assertFalse(config.isTaintOverriders());
+        assertFalse(new TaintConfig().isMergingOverriders());
     }
 
 }
