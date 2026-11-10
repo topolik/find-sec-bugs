@@ -649,7 +649,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             }
 
             Taint instanceTaint = null;
-            if (!(obj instanceof INVOKESTATIC)) {
+            if (!(obj instanceof INVOKESTATIC) && !(obj instanceof INVOKEDYNAMIC)) {
                 instanceTaint = tf.getInstance(obj, cpg);
             }
 
@@ -1076,13 +1076,18 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         }
         String className = methodDescriptor.getSlashedClassName();
         String methodId = "." + methodDescriptor.getName() + methodDescriptor.getSignature();
+        String fullMethodName = className.concat(methodId);
+        TaintMethodConfig previousConfig = taintConfig.get(fullMethodName);
+        if (previousConfig != null && previousConfig.isConfigured()) {
+            // prefer configured summaries to derived
+            return;
+        }
+        // the method may be analyzed again, replace the summary derived by the previous analysis
         if (analyzedMethodConfig.isInformative()
                 || taintConfig.getSuperMethodConfig(className, methodId) != null) {
-            String fullMethodName = className.concat(methodId);
-            if (!taintConfig.containsKey(fullMethodName)) {
-                // prefer configured summaries to derived
-                taintConfig.put(fullMethodName, analyzedMethodConfig);
-            }
+            taintConfig.put(fullMethodName, analyzedMethodConfig);
+        } else if (previousConfig != null) {
+            taintConfig.remove(fullMethodName);
         }
     }
 

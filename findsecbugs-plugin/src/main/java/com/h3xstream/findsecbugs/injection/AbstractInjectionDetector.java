@@ -45,6 +45,7 @@ import org.apache.bcel.generic.INVOKEDYNAMIC;
 import org.apache.bcel.generic.INVOKESTATIC;
 import org.apache.bcel.generic.InstructionHandle;
 import org.apache.bcel.generic.InvokeInstruction;
+import org.apache.bcel.generic.Type;
 
 /**
  * Detector designed for extension to detect injection vulnerabilities
@@ -152,15 +153,57 @@ public abstract class AbstractInjectionDetector extends AbstractTaintDetector {
         }
     }
     
+    @Override
+    protected void analyzeLambdaLocation(ClassContext classContext, Method method, InstructionHandle handle,
+            ConstantPoolGen cpg, INVOKEDYNAMIC invoke, TaintFrame fact, ClassMethodSignature classMethodSignature)
+            throws DataflowAnalysisException {
+        Method lambda = getLambdaImplementation(classContext.getJavaClass(), cpg, invoke);
+        if (lambda == null) {
+            return;
+        }
+        ClassMethodSignature lambdaSignature = new ClassMethodSignature(
+                BCELUtil.getSlashedClassName(classContext.getJavaClass()), lambda.getName(), lambda.getSignature());
+        Set<InjectionSink> sinks = injectionSinks.get(lambdaSignature);
+        if (sinks == null) {
+            return;
+        }
+        // only the captured arguments are on the stack, the remaining lambda parameters come from the functional interface
+        int shift = getArgumentSlots(lambda.getSignature()) + (lambda.isStatic() ? 0 : 1)
+                - getArgumentSlots(invoke.getSignature(cpg));
+        SourceLineAnnotation sourceLine = SourceLineAnnotation.fromVisitedInstruction(classContext, method, handle);
+        checkSinks(getMethodAndSinks(lambdaSignature, sinks), shift, fact, sourceLine, classMethodSignature);
+    }
+
+    private static int getArgumentSlots(String signature) {
+        int slots = 0;
+        for (Type type : Type.getArgumentTypes(signature)) {
+            slots += type.getSize();
+        }
+        return slots;
+    }
+
     private void checkSink(ConstantPoolGen cpg, InvokeInstruction invoke, TaintFrame fact,
                            SourceLineAnnotation line, ClassMethodSignature classMethodSignature) throws DataflowAnalysisException {
-        for (MethodAndSink methodAndSink : getSinks(cpg, invoke, fact)) {
+        checkSinks(getSinks(cpg, invoke, fact), 0, fact, line, classMethodSignature);
+    }
+
+    /**
+     * @param shift number of the callee parameter slots which are not on the stack
+     */
+    private void checkSinks(Set<MethodAndSink> methodAndSinks, int shift, TaintFrame fact,
+                            SourceLineAnnotation line, ClassMethodSignature classMethodSignature) throws DataflowAnalysisException {
+        for (MethodAndSink methodAndSink : methodAndSinks) {
             Taint sinkTaint = sinkTaints.get(methodAndSink);
             assert sinkTaint != null : "sink taint not stored in advance";
             Set<Integer> taintParameters = sinkTaint.getParameters();
             Taint finalTaint = Taint.valueOf(sinkTaint.getNonParametricState());
             for (Integer offset : taintParameters) {
-                Taint parameterTaint = fact.getStackValue(offset);
+                if (offset < shift) {
+                    // a lambda parameter supplied later by the functional interface call
+                    finalTaint = Taint.merge(finalTaint, new Taint(Taint.State.UNKNOWN));
+                    continue;
+                }
+                Taint parameterTaint = fact.getStackValue(offset - shift);
                 finalTaint = Taint.merge(finalTaint, parameterTaint);
             }
             if (finalTaint == null) {
