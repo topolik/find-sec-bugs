@@ -425,6 +425,20 @@ public class Taint {
     }
 
     /**
+     * Replaces the taint tags of the specified method argument, used to restore a stored summary
+     *
+     * @param parameterIndex index of the method argument, must be a parameter of this fact
+     * @param tags taint tags present on every path from the argument
+     * @throws IllegalArgumentException if the argument is not a parameter of this fact
+     */
+    void setParameterTags(int parameterIndex, Set<TaintTag> tags) {
+        if (parameters == null || !parameters.contains(parameterIndex)) {
+            throw new IllegalArgumentException("not a parameter: " + parameterIndex);
+        }
+        parameterTags.put(parameterIndex, new HashSet<>(tags));
+    }
+
+    /**
      * Clear method the parameters that could influence the taint state
      */
     public void clearParameters() {
@@ -723,13 +737,14 @@ public class Taint {
                 (a.sources != null ? a.sources.size() : 0) +
                         (b.sources != null ? b.sources.size() : 0);
         if (sourcesSize > 0) {
+            // either set may be empty
             result.sources = new HashSet<>(sourcesSize);
-        }
-        if (a.sources != null) {
-            result.sources.addAll(a.sources);
-        }
-        if (b.sources != null) {
-            result.sources.addAll(b.sources);
+            if (a.sources != null) {
+                result.sources.addAll(a.sources);
+            }
+            if (b.sources != null) {
+                result.sources.addAll(b.sources);
+            }
         }
 
         return result;
@@ -901,7 +916,7 @@ public class Taint {
     }
 
     protected void addAllSources(Set<UnknownSource> sources) {
-        if (sources == null) {
+        if (sources == null || sources.isEmpty()) {
             return;
         }
 

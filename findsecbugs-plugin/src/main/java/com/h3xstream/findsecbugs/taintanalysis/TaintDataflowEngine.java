@@ -24,6 +24,7 @@ import edu.umd.cs.findbugs.ba.AnalysisContext;
 import edu.umd.cs.findbugs.ba.CFG;
 import edu.umd.cs.findbugs.ba.DepthFirstSearch;
 import edu.umd.cs.findbugs.classfile.CheckedAnalysisException;
+import edu.umd.cs.findbugs.classfile.Global;
 import edu.umd.cs.findbugs.classfile.IAnalysisCache;
 import edu.umd.cs.findbugs.classfile.IMethodAnalysisEngine;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
@@ -50,6 +51,8 @@ import java.util.TreeSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.zip.GZIPInputStream;
 
 import org.apache.bcel.generic.MethodGen;
 
@@ -92,6 +95,7 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     private static TaintDataflowEngine instance;
     private final TaintConfig taintConfig = new TaintConfig();
     private int excludedKeyCount;
+    private boolean derivedConfigImported;
     @SuppressFBWarnings(value="MS_SHOULD_BE_REFACTORED_TO_BE_FINAL", justification="Can't be final because FileOutputStream needs a try-catch.")
     protected static Writer writer = null;
     private static List<TaintFrameAdditionalVisitor> visitors = new ArrayList<TaintFrameAdditionalVisitor>();
@@ -211,6 +215,9 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     @Override
     public TaintDataflow analyze(IAnalysisCache cache, MethodDescriptor descriptor)
             throws CheckedAnalysisException {
+        if (!derivedConfigImported) {
+            importDerivedConfigs();
+        }
         if(FindSecBugsGlobalConfig.getInstance().isDebugPrintInstructionVisited() || FindSecBugsGlobalConfig.getInstance().isDebugPrintInvocationVisited()) {
             System.out.println("==[ Method: "+descriptor.getName()+" ]==");
         }
@@ -222,6 +229,34 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
         flow.execute();
         analysis.finishAnalysis();
         return flow;
+    }
+
+    /**
+     * Imports the summaries derived by other scans, the application classes are known only once the analysis
+     * starts and their summaries are skipped, they are derived again by this scan
+     */
+    private void importDerivedConfigs() {
+        derivedConfigImported = true;
+        String importConfigFile = CONFIG.getTaintImportConfigFile();
+        if (importConfigFile == null || importConfigFile.isEmpty()) {
+            return;
+        }
+        //Looking the classes up in the class hierarchy would report the classes of the other scans as missing
+        final Set<String> applicationResources = Global.getAnalysisCache().getClassPath()
+                .getApplicationCodebaseEntries().keySet();
+        for (String path : importConfigFile.split(File.pathSeparator)) {
+            try (InputStream stream = path.endsWith(".gz")
+                    ? new GZIPInputStream(new FileInputStream(path))
+                    : new FileInputStream(path)) {
+                taintConfig.loadDerived(stream, className -> applicationResources.contains(className + ".class"));
+            } catch (IOException ex) {
+                throw new RuntimeException("Cannot import derived taint config from " + path, ex);
+            }
+        }
+        LOGGER.log(Level.INFO, "Imported {0} derived taint summaries from {1}, skipped {2} of the analyzed classes, "
+                + "{3} already set, {4} bad", new Object[] {String.valueOf(taintConfig.getImportedEntries()),
+                importConfigFile, String.valueOf(taintConfig.getImportSkippedEntries()),
+                String.valueOf(taintConfig.getImportPresentEntries()), String.valueOf(taintConfig.getImportBadEntries())});
     }
 
     /**
@@ -312,27 +347,46 @@ public class TaintDataflowEngine implements IMethodAnalysisEngine<TaintDataflow>
     }
 
     private static void writeTaint(Taint taint) throws IOException {
+        writer.append(formatDerivedTaint(taint));
+    }
+
+    /**
+     * Formats the taint in the summary format, an argument whose tags differ from the tags of the taint is
+     * followed by its tags in brackets, e.g. {@code 0[XSS_SAFE],1,UNKNOWN|+SQL_INJECTION_SAFE,-URL_ENCODED}
+     */
+    static String formatDerivedTaint(Taint taint) {
+        StringBuilder sb = new StringBuilder();
         if (taint.isUnknown() && taint.hasParameters()) {
-            writer.append(taint.getParameters().stream().map(String::valueOf).collect(Collectors.joining(",")));
+            String separator = "";
+            for (Integer parameter : new TreeSet<Integer>(taint.getParameters())) {
+                sb.append(separator).append(parameter);
+                separator = ",";
+
+                Set<TaintTag> parameterTags = taint.getParameterTags(parameter);
+                if (!parameterTags.equals(taint.getTags())) {
+                    sb.append('[');
+                    sb.append(parameterTags.stream().map(TaintTag::name).sorted().collect(Collectors.joining(",")));
+                    sb.append(']');
+                }
+            }
 
             Taint.State nonParametricState = taint.getNonParametricState();
             if (nonParametricState != Taint.State.INVALID) {
-                writer.append(',');
-                writer.append(nonParametricState.name());
+                sb.append(',');
+                sb.append(nonParametricState.name());
             }
         }
         else {
-            writer.append(taint.getState().name());
+            sb.append(taint.getState().name());
         }
 
-        if (taint.hasTags()) {
-            writer.append('|');
-            writer.append(taint.getTags().stream().map(TaintTag::name).collect(Collectors.joining(",", "+", "")));
+        if (taint.hasTags() || taint.isRemovingTags()) {
+            sb.append('|').append(Stream.concat(
+                    taint.getTags().stream().map(tag -> "+" + tag.name()).sorted(),
+                    taint.getTagsToRemove().stream().map(tag -> "-" + tag.name()).sorted())
+                    .collect(Collectors.joining(",")));
         }
-        if (taint.isRemovingTags()) {
-            writer.append('|');
-            writer.append(taint.getTagsToRemove().stream().map(TaintTag::name).collect(Collectors.joining(",", "-", "")));
-        }
+        return sb.toString();
     }
 
     /**

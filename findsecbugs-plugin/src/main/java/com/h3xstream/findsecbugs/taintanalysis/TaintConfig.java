@@ -27,9 +27,12 @@ import org.apache.bcel.classfile.AnnotationEntry;
 import org.apache.bcel.classfile.JavaClass;
 import org.apache.bcel.classfile.Method;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -40,6 +43,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Map of taint summaries for all known methods and classes
@@ -78,6 +84,12 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
     private transient Set<String> excludedKeys = Collections.emptySet();
     private final Set<String> excludedMatches = new HashSet<String>();
     private int excludedEntries;
+
+    private static final Pattern DERIVED_PARAMETER_TAGS = Pattern.compile("(\\d+)\\[([^\\]]*)\\]");
+    private int importedEntries;
+    private int importSkippedEntries;
+    private int importPresentEntries;
+    private int importBadEntries;
 
     /**
      * Dumps all the summaries for debugging
@@ -200,6 +212,114 @@ public class TaintConfig extends HashMap<String, TaintMethodConfig> {
         });
     }
 
+
+    /**
+     * Imports the summaries derived by the analysis of other classes, the lines of derived-config.txt
+     * {@code signature[:output taint](^stack index:argument output taint)*}. A summary is added as not configured,
+     * only if no summary is set for the method and its class is not skipped.
+     *
+     * @param input stream of the derived summaries
+     * @param skipClass tells whether to skip the summaries of the slashed class name, e.g. of the analyzed classes
+     * @throws IOException if cannot read the stream
+     */
+    public void loadDerived(InputStream input, Predicate<String> skipClass) throws IOException {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            line = line.trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            String[] parts = line.split("\\^");
+            int index = parts[0].indexOf(':');
+            String key = index < 0 ? parts[0] : parts[0].substring(0, index);
+            int parenthesis = key.indexOf('(');
+            int dot = parenthesis < 0 ? -1 : key.lastIndexOf('.', parenthesis);
+            if (dot <= 0) {
+                importBadEntries++;
+                continue;
+            }
+            if (skipClass.test(key.substring(0, dot))) {
+                importSkippedEntries++;
+                continue;
+            }
+            if (containsKey(key)) {
+                importPresentEntries++;
+                continue;
+            }
+            try {
+                TaintMethodConfig config = new TaintMethodConfig(false);
+                if (index >= 0) {
+                    config.setOuputTaint(loadDerivedTaint(parts[0].substring(index + 1)));
+                }
+                for (int i = 1; i < parts.length; i++) {
+                    String[] tuple = parts[i].split(":", 2);
+                    if (tuple.length != 2) {
+                        throw new IOException("Bad format: argument output taint " + parts[i]);
+                    }
+                    config.setParameterOutputTaint(Integer.parseInt(tuple[0]), loadDerivedTaint(tuple[1]));
+                }
+                config.setParametersOutputTaintsProcessed(true);
+                config.setTypeSignature(key);
+                put(key, config);
+                importedEntries++;
+            } catch (IOException | RuntimeException ex) {
+                importBadEntries++;
+            }
+        }
+    }
+
+    private static Taint loadDerivedTaint(String str) throws IOException {
+        Map<Integer, Set<TaintTag>> parameterTags = new HashMap<Integer, Set<TaintTag>>();
+        Matcher matcher = DERIVED_PARAMETER_TAGS.matcher(str);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            Set<TaintTag> tags = new HashSet<TaintTag>();
+            for (String tagName : matcher.group(2).split(",")) {
+                if (!tagName.isEmpty()) {
+                    TaintTag tag = TaintTag.get(tagName);
+                    tags.add(tag == null ? TaintTag.create(tagName) : tag);
+                }
+            }
+            parameterTags.put(Integer.valueOf(matcher.group(1)), tags);
+            matcher.appendReplacement(sb, matcher.group(1));
+        }
+        matcher.appendTail(sb);
+        // the tags of the taint apply to its arguments too, the arguments with other tags are set afterwards
+        Taint taint = new TaintMethodConfig(false).load(sb.toString()).getOutputTaint();
+        for (Map.Entry<Integer, Set<TaintTag>> entry : parameterTags.entrySet()) {
+            taint.setParameterTags(entry.getKey(), entry.getValue());
+        }
+        return taint;
+    }
+
+    /**
+     * @return number of imported derived summaries
+     */
+    public int getImportedEntries() {
+        return importedEntries;
+    }
+
+    /**
+     * @return number of derived summaries not imported because their class is skipped
+     */
+    public int getImportSkippedEntries() {
+        return importSkippedEntries;
+    }
+
+    /**
+     * @return number of derived summaries not imported because a summary is already set
+     */
+    public int getImportPresentEntries() {
+        return importPresentEntries;
+    }
+
+    /**
+     * @return number of derived summaries not imported because of a bad format
+     */
+    public int getImportBadEntries() {
+        return importBadEntries;
+    }
 
     private boolean isExcluded(String key) {
         if (!excludedKeys.contains(key)) {

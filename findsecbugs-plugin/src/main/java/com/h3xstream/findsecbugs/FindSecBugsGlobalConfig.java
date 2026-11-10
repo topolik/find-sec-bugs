@@ -44,6 +44,7 @@ public class FindSecBugsGlobalConfig {
     private String taintConfigUsage;
     private String taintConfigUsageFile;
     private String taintExcludeConfigKeys;
+    private String taintImportConfigFile;
 
     protected FindSecBugsGlobalConfig() {
         debugOutputTaintConfigs = Boolean.parseBoolean(loadFromSystem("findsecbugs.taint.outputconfigs", Boolean.FALSE.toString()));
@@ -57,6 +58,7 @@ public class FindSecBugsGlobalConfig {
         taintConfigUsage = loadFromSystem("findsecbugs.taint.configusage", null);
         taintConfigUsageFile = loadFromSystem("findsecbugs.taint.configusagefile", "config-usage.txt");
         taintExcludeConfigKeys = loadFromSystem("findsecbugs.taint.excludeconfigkeys", null);
+        taintImportConfigFile = loadFromSystem("findsecbugs.taint.importconfigfile", null);
     }
 
     public String loadFromSystem(String key, String defaultValue) {
@@ -201,6 +203,18 @@ public class FindSecBugsGlobalConfig {
 
     public void setTaintExcludeConfigKeys(String taintExcludeConfigKeys) {
         this.taintExcludeConfigKeys = taintExcludeConfigKeys;
+    }
+
+    /**
+     * Files of summaries derived by other scans (derived-config.txt format) imported for the methods
+     * without a summary, separated by the path separator
+     */
+    public String getTaintImportConfigFile() {
+        return taintImportConfigFile;
+    }
+
+    public void setTaintImportConfigFile(String taintImportConfigFile) {
+        this.taintImportConfigFile = taintImportConfigFile;
     }
 
     public boolean isReportPotentialXssWrongContext() {
