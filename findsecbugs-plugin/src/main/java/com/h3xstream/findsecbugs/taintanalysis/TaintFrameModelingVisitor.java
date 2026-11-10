@@ -27,6 +27,10 @@ import edu.umd.cs.findbugs.ba.AbstractFrameModelingVisitor;
 import edu.umd.cs.findbugs.ba.DataflowAnalysisException;
 import edu.umd.cs.findbugs.ba.InvalidBytecodeException;
 import edu.umd.cs.findbugs.ba.generic.GenericSignatureParser;
+import edu.umd.cs.findbugs.ba.type.TypeDataflow;
+import edu.umd.cs.findbugs.ba.type.TypeFrame;
+import edu.umd.cs.findbugs.classfile.CheckedAnalysisException;
+import edu.umd.cs.findbugs.classfile.Global;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
 import edu.umd.cs.findbugs.util.ClassName;
 
@@ -35,6 +39,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.apache.bcel.Const;
+import org.apache.bcel.Repository;
 import org.apache.bcel.generic.*;
 
 /**
@@ -458,9 +463,38 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         try {
             getFrame().popValue(); // array index
             // just transfer the taint from array to value at any index
+            ObjectType elementType = getLoadedElementType();
+            if (elementType != null) {
+                // an immutable element cannot be mutated by any later call, copy
+                // to avoid retyping the array sharing the same taint
+                Taint taint = new Taint(getFrame().popValue());
+                taint.setRealInstanceClass(elementType);
+                getFrame().pushValue(taint);
+            }
         } catch (DataflowAnalysisException ex) {
             throw new InvalidBytecodeException("Not enough values on the stack", ex);
         }
+    }
+
+    /**
+     * Returns the type of the element loaded by the current AALOAD when it is immutable
+     */
+    private ObjectType getLoadedElementType() {
+        try {
+            TypeDataflow typeDataflow = Global.getAnalysisCache().getMethodAnalysis(
+                    TypeDataflow.class, methodDescriptor);
+            TypeFrame typeFrame = typeDataflow.getFactAfterLocation(getLocation());
+            if (!typeFrame.isValid()) {
+                return null;
+            }
+            Type type = typeFrame.getTopValue();
+            if (type instanceof ObjectType && taintConfig.isClassImmutable(type.getSignature())) {
+                return (ObjectType) type;
+            }
+        } catch (CheckedAnalysisException ex) {
+            // fall back to an untyped element
+        }
+        return null;
     }
 
 
@@ -596,6 +630,14 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             Taint taintCopy = taint;
             // return type is not always the instance type
             taintCopy.setRealInstanceClass(methodConfig != null && methodConfig.getOutputTaint() != null ? methodConfig.getOutputTaint().getRealInstanceClass() : null);
+            Type returnType = obj.getReturnType(cpg);
+            if (taintCopy.getRealInstanceClass() == null && returnType instanceof ObjectType
+                    && taintConfig.isClassImmutable(returnType.getSignature())) {
+                // an immutable return type cannot be mutated by any later call, copy
+                // to avoid retyping a transferred argument sharing the same instance
+                taintCopy = new Taint(taintCopy);
+                taintCopy.setRealInstanceClass((ObjectType) returnType);
+            }
 
             TaintFrame tf = getFrame();
 
@@ -647,6 +689,23 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         if (taintConfig.isClassTaintSafe(returnType)) {
             return TaintMethodConfig.SAFE_CONFIG;
         }
+        if (isAnnotationElement(obj, className)) {
+            return TaintMethodConfig.SAFE_CONFIG;
+        }
+        if (!(obj instanceof INVOKESTATIC) && !(obj instanceof INVOKEDYNAMIC)
+                && taintConfig.isReceiverTransferMethod(className, methodId)) {
+            // e.g. @AutoEscape getters return the receiver's taint, tags included
+            try {
+                Taint receiverTransfer = new Taint(Taint.State.UNKNOWN);
+                receiverTransfer.addParameter(getFrame().getNumArgumentsIncludingObjectInstance(obj, cpg) - 1);
+                TaintMethodConfig receiverConfig = new TaintMethodConfig(false);
+                receiverConfig.setOuputTaint(receiverTransfer);
+                receiverConfig.setTypeSignature(className + methodId);
+                return receiverConfig;
+            } catch (DataflowAnalysisException ex) {
+                throw new InvalidBytecodeException(ex.getMessage(), ex);
+            }
+        }
         if (config != null) {
             return config;
         }
@@ -663,6 +722,20 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             }
         }
         return null;
+    }
+
+    /**
+     * Annotation element values are compile-time constants
+     */
+    private boolean isAnnotationElement(InvokeInstruction obj, String className) {
+        if (!(obj instanceof INVOKEINTERFACE) || obj.getArgumentTypes(cpg).length != 0) {
+            return false;
+        }
+        try {
+            return Repository.lookupClass(className).isAnnotation();
+        } catch (ClassNotFoundException ex) {
+            return false;
+        }
     }
 
     private TaintMethodConfig getConfigWithReplaceTags(TaintMethodConfig config, String className, String methodName) {
@@ -741,6 +814,10 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
     }
 
     private String getInstanceClassName(InvokeInstruction invoke) {
+        if (invoke instanceof INVOKESTATIC || invoke instanceof INVOKEDYNAMIC) {
+            // there is no instance, the first argument is not the receiver
+            return BCELUtil.getSlashedClassName(cpg, invoke);
+        }
         try {
             int instanceIndex = getFrame().getNumArgumentsIncludingObjectInstance(invoke, cpg) - 1;
             if (instanceIndex != -1) {
@@ -787,7 +864,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         Taint result = taint;
         if (taint.isUnknown() && taint.hasParameters()) {
             // taint consisting of merged parameters only
-            Taint transferParametersTaint = mergeTransferParameters(taint.getParameters());
+            Taint transferParametersTaint = mergeTransferParameters(taint);
             assert transferParametersTaint != null;
 
             if (taint.getNonParametricState() != Taint.State.INVALID) {
@@ -797,6 +874,9 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             else {
                 result = transferParametersTaint;
             }
+
+            // the result is a new value, not stored in any local yet
+            result.invalidateVariableIndex();
 
             result.addAllSources(taint.getSources());
 
@@ -862,6 +942,10 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
             assert index >= 0 && index < getFrame().getStackDepth();
             try {
                 Taint stackValue = getFrame().getStackValue(index);
+                ObjectType realInstanceClass = stackValue.getRealInstanceClass();
+                if (realInstanceClass != null && taintConfig.isClassImmutable(realInstanceClass.getSignature())) {
+                    continue;
+                }
                 Taint taint = Taint.merge(stackValue, getDefaultValue());
                 if (stackValue.hasValidVariableIndex()) {
                     // set back the index removed during merging
@@ -877,16 +961,24 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
         }
     }
 
-    private Taint mergeTransferParameters(Collection<Integer> transferParameters) {
-        assert transferParameters != null && !transferParameters.isEmpty();
+    private Taint mergeTransferParameters(Taint transferTaint) {
+        assert transferTaint != null && transferTaint.hasParameters();
         Taint taint = null;
         Taint safeTaint = null;
-        for (Integer transferParameter : transferParameters) {
+        for (Integer transferParameter : transferTaint.getParameters()) {
             try {
                 Taint value = getFrame().getStackValue(transferParameter);
                 if (value.isSafe()) {
                     safeTaint = Taint.merge(safeTaint, value);;
                 } else {
+                    // tags the method body applies to this argument on all paths
+                    Set<TaintTag> parameterTags = transferTaint.getParameterTags(transferParameter);
+                    if (!parameterTags.isEmpty()) {
+                        value = new Taint(value);
+                        for (TaintTag tag : parameterTags) {
+                            value.addTag(tag);
+                        }
+                    }
                     taint = Taint.merge(taint, value);
                 }
             } catch (DataflowAnalysisException ex) {

@@ -27,9 +27,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import org.apache.bcel.generic.ObjectType;
@@ -114,10 +115,20 @@ public class Taint {
 
     private State state;
     private static final int INVALID_INDEX = -1;
+    /**
+     * Index of the local variable the value was loaded from or stored to, used to
+     * write the taint of a mutated stack value back to that local, e.g. after
+     * {@code sb.append(tainted)}. It is not alias analysis: the value of a method
+     * call has no index even when it shares data with the receiver or an argument
+     * (map values, views), unless the call itself writes it back to a mutated local
+     * like the receiver of {@code append}, and a store replaces the index, so other
+     * locals referring to the same object are not updated.
+     */
     private int variableIndex;
     private Set<TaintLocation> taintLocations;
     private Set<TaintLocation> unknownLocations;
     private Set<Integer> parameters;
+    private Map<Integer, Set<TaintTag>> parameterTags;
     private State nonParametricState;
     private ObjectType realInstanceClass;
     private String realInstanceClassName;
@@ -169,6 +180,12 @@ public class Taint {
         }
         if (taint.parameters != null) {
             this.parameters = new HashSet<>(taint.parameters);
+        }
+        if (taint.parameterTags != null) {
+            this.parameterTags = new HashMap<>(taint.parameterTags.size());
+            for (Map.Entry<Integer, Set<TaintTag>> entry : taint.parameterTags.entrySet()) {
+                this.parameterTags.put(entry.getKey(), new HashSet<>(entry.getValue()));
+            }
         }
         this.nonParametricState = taint.nonParametricState;
         this.realInstanceClass = taint.realInstanceClass;
@@ -362,6 +379,12 @@ public class Taint {
             parameters = new HashSet<>();
         }
         parameters.add(parameterIndex);
+        if (parameterTags == null) {
+            parameterTags = new HashMap<>();
+        }
+        if (!parameterTags.containsKey(parameterIndex)) {
+            parameterTags.put(parameterIndex, new HashSet<>());
+        }
     }
 
     /**
@@ -387,11 +410,29 @@ public class Taint {
     }
 
     /**
+     * Returns the taint tags present on every path from the specified method
+     * argument to this fact, empty if the argument reached it unsanitized
+     *
+     * @param parameterIndex index of the method argument
+     * @return unmodifiable set of taint tags
+     */
+    public Set<TaintTag> getParameterTags(int parameterIndex) {
+        if (parameterTags == null || !parameterTags.containsKey(parameterIndex)) {
+            return Collections.emptySet();
+        }
+
+        return Collections.unmodifiableSet(parameterTags.get(parameterIndex));
+    }
+
+    /**
      * Clear method the parameters that could influence the taint state
      */
     public void clearParameters() {
         if (parameters != null) {
             parameters.clear();
+        }
+        if (parameterTags != null) {
+            parameterTags.clear();
         }
     }
 
@@ -453,6 +494,11 @@ public class Taint {
     public boolean addTag(TaintTag tag) {
         if (tags == null) {
             tags = new HashSet<>();
+        }
+        if (parameterTags != null) {
+            for (Set<TaintTag> tagsOfParameter : parameterTags.values()) {
+                tagsOfParameter.add(tag);
+            }
         }
 
         return tags.add(tag);
@@ -519,6 +565,11 @@ public class Taint {
             tagsToRemove = new HashSet<>();
         }
         tagsToRemove.add(tag);
+        if (parameterTags != null) {
+            for (Set<TaintTag> tagsOfParameter : parameterTags.values()) {
+                tagsOfParameter.remove(tag);
+            }
+        }
 
         return tags != null && tags.remove(tag);
     }
@@ -701,6 +752,23 @@ public class Taint {
             result.parameters.addAll(b.parameters);
         }
 
+        // a tag is kept for an argument only if present on all paths it reaches
+        result.parameterTags = new HashMap<>(result.parameters.size());
+        for (Integer parameter : result.parameters) {
+            boolean inA = a.parameters != null && a.parameters.contains(parameter);
+            boolean inB = b.parameters != null && b.parameters.contains(parameter);
+            Set<TaintTag> tagsOfParameter = new HashSet<>();
+            if (inA) {
+                tagsOfParameter.addAll(a.getParameterTags(parameter));
+                if (inB) {
+                    tagsOfParameter.retainAll(b.getParameterTags(parameter));
+                }
+            } else if (inB) {
+                tagsOfParameter.addAll(b.getParameterTags(parameter));
+            }
+            result.parameterTags.put(parameter, tagsOfParameter);
+        }
+
         if (a.hasParameters()) {
             if (b.hasParameters()) {
                 result.nonParametricState = State.merge(a.nonParametricState, b.nonParametricState);
@@ -782,6 +850,7 @@ public class Taint {
                 && Objects.equals(this.taintLocations, other.taintLocations)
                 && Objects.equals(this.unknownLocations, other.unknownLocations)
                 && Objects.equals(this.parameters, other.parameters)
+                && Objects.equals(this.parameterTags, other.parameterTags)
                 && this.nonParametricState == other.nonParametricState
                 && Objects.equals(this.realInstanceClass, other.realInstanceClass)
                 //&& this.tags.equals(other.tags)
@@ -792,7 +861,7 @@ public class Taint {
     @Override
     public int hashCode() {
         return Objects.hash(state, variableIndex, taintLocations, unknownLocations,
-                parameters, nonParametricState, realInstanceClass, tags, constantValue);
+                parameters, parameterTags, nonParametricState, realInstanceClass, tags, constantValue);
     }
 
     /**

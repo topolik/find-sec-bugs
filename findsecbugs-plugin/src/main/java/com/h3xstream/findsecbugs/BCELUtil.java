@@ -126,13 +126,17 @@ public class BCELUtil {
 
                 case 'B':
                 case 'C':
-                case 'D':
                 case 'F':
                 case 'I':
-                case 'J':
                 case 'S':
                 case 'Z':
                     count++;
+                    break;
+
+                case 'D':
+                case 'J':
+                    // long and double take two stack slots
+                    count += 2;
                     break;
 
                 case 'L':

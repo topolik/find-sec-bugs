@@ -1,0 +1,3 @@
+@testcode/xss/servlets/AutoEscapeLike:RECEIVER
+testcode/xss/servlets/XssServletAutoEscape.load(Ljava/lang/String;)Ltestcode/xss/servlets/XssServletAutoEscape$Entry;:0
+testcode/xss/servlets/XssServletAutoEscape$EntryModel.escape()Ltestcode/xss/servlets/XssServletAutoEscape$Entry;:0|+XSS_SAFE
