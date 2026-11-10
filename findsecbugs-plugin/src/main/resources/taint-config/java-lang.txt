@@ -186,6 +186,9 @@ java/lang/String.toLowerCase(Ljava/util/Locale;)Ljava/lang/String;:1
 java/lang/String.toUpperCase()Ljava/lang/String;:0
 java/lang/String.toUpperCase(Ljava/util/Locale;)Ljava/lang/String;:1
 java/lang/String.trim()Ljava/lang/String;:0
+java/lang/String.strip()Ljava/lang/String;:0
+java/lang/String.stripLeading()Ljava/lang/String;:0
+java/lang/String.stripTrailing()Ljava/lang/String;:0
 java/lang/String.valueOf(Z)Ljava/lang/String;:SAFE
 java/lang/String.valueOf(C)Ljava/lang/String;:0
 java/lang/String.valueOf(D)Ljava/lang/String;:SAFE
@@ -202,7 +205,7 @@ java/lang/CharSequence.subSequence(II)Ljava/lang/CharSequence;:2
 
 
 java/lang/Boolean.toString()Ljava/lang/String;:SAFE
-java/lang/Boolean.toString(B)Ljava/lang/String;:SAFE
+java/lang/Boolean.toString(Z)Ljava/lang/String;:SAFE
 java/lang/Character.getName(I)Ljava/lang/String;:0
 java/lang/Character.toString()Ljava/lang/String;:0
 java/lang/Character.toString(C)Ljava/lang/String;:0
