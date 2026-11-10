@@ -94,4 +94,30 @@ public class UnvalidatedRedirectDetectorTest extends BaseDetectorTest {
                 bugDefinition().bugType("UNVALIDATED_REDIRECT").inClass("JakartaUnvalidatedRedirectServlet").build()
         );
     }
+
+    @Test
+    public void detectConfiguredRedirectSink() throws Exception {
+        //Locate test code
+        String[] files = {
+                getClassFilePath("testcode/UnvalidatedRedirectConfiguredSink")
+        };
+
+        //Run the analysis
+        EasyBugReporter reporter = spy(new SecurityReporter());
+        analyze(files, reporter);
+
+        //The sink comes from the injection-sinks/unvalidated-redirect.txt test resource
+        verify(reporter).doReportBug(
+                bugDefinition()
+                        .bugType("UNVALIDATED_REDIRECT")
+                        .inClass("UnvalidatedRedirectConfiguredSink")
+                        .inMethod("unvalidatedRedirect")
+                        .withPriority("High")
+                        .build()
+        );
+
+        verify(reporter, times(1)).doReportBug(
+                bugDefinition().bugType("UNVALIDATED_REDIRECT").inClass("UnvalidatedRedirectConfiguredSink").build()
+        );
+    }
 }
