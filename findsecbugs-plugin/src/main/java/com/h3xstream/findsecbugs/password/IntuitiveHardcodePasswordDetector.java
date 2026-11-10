@@ -86,7 +86,7 @@ public class IntuitiveHardcodePasswordDetector extends BasicInjectionDetector {
             throws DataflowAnalysisException {
         Taint stringValue = fact.getStackValue(offset);
 
-        if (TaintUtil.isConstantValue(stringValue)) { //Is a constant value
+        if (TaintUtil.isConstantValueAndNotEmpty(stringValue)) { //Is a non-empty constant value
             return Priorities.NORMAL_PRIORITY;
         } else {
             return Priorities.IGNORE_PRIORITY;

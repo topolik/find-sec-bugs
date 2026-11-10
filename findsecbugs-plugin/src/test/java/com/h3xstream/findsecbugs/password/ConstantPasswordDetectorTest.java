@@ -21,6 +21,7 @@ import com.h3xstream.findbugs.test.BaseDetectorTest;
 import com.h3xstream.findbugs.test.EasyBugReporter;
 import java.util.Arrays;
 import java.util.List;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -82,5 +83,17 @@ public class ConstantPasswordDetectorTest extends BaseDetectorTest {
                 bugDefinition().bugType("HARD_CODE_PASSWORD").build());
         verify(reporter, times(linesKeys.size() + 1)).doReportBug(
                 bugDefinition().bugType("HARD_CODE_KEY").build());
+    }
+
+    @Test
+    public void avoidSignatureFieldNames() throws Exception {
+        String[] files = {
+                getClassFilePath("testcode/password/MagicNumberSignature")
+        };
+
+        EasyBugReporter reporter = spy(new SecurityReporter());
+        analyze(files, reporter);
+
+        verify(reporter, never()).doReportBug(bugDefinition().bugType("HARD_CODE_KEY").build());
     }
 }
