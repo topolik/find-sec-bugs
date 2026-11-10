@@ -29,12 +29,16 @@ import edu.umd.cs.findbugs.ba.InvalidBytecodeException;
 import edu.umd.cs.findbugs.ba.generic.GenericSignatureParser;
 import edu.umd.cs.findbugs.ba.type.TypeDataflow;
 import edu.umd.cs.findbugs.ba.type.TypeFrame;
+import edu.umd.cs.findbugs.ba.vna.ValueNumber;
+import edu.umd.cs.findbugs.ba.vna.ValueNumberDataflow;
+import edu.umd.cs.findbugs.ba.vna.ValueNumberFrame;
 import edu.umd.cs.findbugs.classfile.CheckedAnalysisException;
 import edu.umd.cs.findbugs.classfile.Global;
 import edu.umd.cs.findbugs.classfile.MethodDescriptor;
 import edu.umd.cs.findbugs.util.ClassName;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -50,6 +54,11 @@ import org.apache.bcel.generic.*;
 public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Taint, TaintFrame> {
 
     private static final Logger LOG = Logger.getLogger(TaintFrameModelingVisitor.class.getName());
+    private static final AtomicLong MUST_ALIAS_LOAD_WRITES = new AtomicLong();
+    private static final AtomicLong MUST_ALIAS_MUTATIONS = new AtomicLong();
+    private static final AtomicLong MUST_ALIAS_SKIPS = new AtomicLong();
+    private static final AtomicLong MUST_ALIAS_WRITES = new AtomicLong();
+    private static boolean mustAliasShutdownHook;
 
     private static final Map<String, Taint.Tag> REPLACE_TAGS;
 
@@ -467,6 +476,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                 getFrame().popValue();
                 getFrame().pushValue(new Taint(merge));
             }
+            setMustAliasesTaint(merge, arrayTaint, 2);
         } catch (DataflowAnalysisException ex) {
             throw new InvalidBytecodeException("Not enough values on the stack", ex);
         }
@@ -1167,6 +1177,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                     taint.setRealInstanceClass(stackValue.getRealInstanceClass());
                     getFrame().setValue(getFrame().getStackLocation(stackIndex), taint);
                     setLocalVariableTaint(taint, stackValue);
+                    setMustAliasesTaint(taint, stackValue, stackIndex);
                 }
                 catch (DataflowAnalysisException ex) {
                     throw new InvalidBytecodeException("Not enough values on the stack", ex);
@@ -1194,6 +1205,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                 taint.addLocation(getTaintLocation(), false);
                 getFrame().setValue(getFrame().getStackLocation(index), taint);
                 setLocalVariableTaint(taint, taint);
+                setMustAliasesTaint(taint, stackValue, index);
             } catch (DataflowAnalysisException ex) {
                 throw new InvalidBytecodeException("Not enough values on the stack", ex);
             }
@@ -1253,6 +1265,7 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
                 // do not set instance to return values, can be different type
                 taintCopy.setRealInstanceClass(stackValue.getRealInstanceClass());
                 getFrame().setValue(getFrame().getStackLocation(mutableStackIndex), taintCopy);
+                setMustAliasesTaint(taint, stackValue, mutableStackIndex);
             }
         } catch (DataflowAnalysisException ex) {
             assert false : ex.getMessage(); // stack depth is checked
@@ -1276,6 +1289,117 @@ public class TaintFrameModelingVisitor extends AbstractFrameModelingVisitor<Tain
 
         valueTaint.setVariableIndex(index);
         getFrame().setValue(index, valueTaint);
+    }
+
+    /**
+     * Merges the taint of a mutated object into the other locals and stack values referring to the
+     * same object on all paths, see {@link FindSecBugsGlobalConfig#isTaintMustAlias}, a merge never
+     * lowers an alias, even after a mutation replacing the taint of the mutated value, like clear
+     *
+     * @param valueTaint new taint of the mutated object
+     * @param stackValue mutated stack value, its local is written by {@link #setLocalVariableTaint}
+     * @param stackIndex index of the mutated value in the stack before the current instruction
+     */
+    private void setMustAliasesTaint(Taint valueTaint, Taint stackValue, int stackIndex) {
+        if (!FindSecBugsGlobalConfig.getInstance().isTaintMustAlias()) {
+            return;
+        }
+        registerMustAliasShutdownHook();
+        MUST_ALIAS_MUTATIONS.incrementAndGet();
+        ValueNumberFrame valueNumberFrame = getValueNumberFrame();
+        TaintFrame frame = getFrame();
+        if (valueNumberFrame == null || valueNumberFrame.getNumLocals() != frame.getNumLocals()) {
+            MUST_ALIAS_SKIPS.incrementAndGet();
+            return;
+        }
+        // the values consumed by the current instruction may be popped already
+        int poppedValues = valueNumberFrame.getStackDepth() - frame.getStackDepth();
+        if (poppedValues < 0 || stackIndex >= valueNumberFrame.getStackDepth()) {
+            MUST_ALIAS_SKIPS.incrementAndGet();
+            return;
+        }
+        boolean written = false;
+        try {
+            Set<ValueNumber> objects = new HashSet<>();
+            objects.add(valueNumberFrame.getStackValue(stackIndex));
+            int writtenIndex = -1;
+            if (stackValue.hasValidVariableIndex() && stackValue.getVariableIndex() < frame.getNumLocals()) {
+                // a value returned by a call mutating its receiver, like append, refers to the receiver local
+                writtenIndex = stackValue.getVariableIndex();
+                objects.add(valueNumberFrame.getValue(writtenIndex));
+            }
+            for (int index = 0; index < frame.getNumLocals(); index++) {
+                if (index == writtenIndex || !objects.contains(valueNumberFrame.getValue(index))) {
+                    continue;
+                }
+                Taint localAlias = frame.getValue(index);
+                Taint aliasTaint = Taint.merge(valueTaint, localAlias);
+                aliasTaint.setVariableIndex(index);
+                aliasTaint.setRealInstanceClass(localAlias.getRealInstanceClass());
+                frame.setValue(index, aliasTaint);
+                written = true;
+            }
+            for (int index = 0; index < frame.getStackDepth(); index++) {
+                if (index + poppedValues == stackIndex
+                        || !objects.contains(valueNumberFrame.getStackValue(index + poppedValues))) {
+                    continue;
+                }
+                Taint stackAlias = frame.getStackValue(index);
+                Taint aliasTaint = Taint.merge(valueTaint, stackAlias);
+                if (stackAlias.hasValidVariableIndex()) {
+                    aliasTaint.setVariableIndex(stackAlias.getVariableIndex());
+                } else {
+                    aliasTaint.invalidateVariableIndex();
+                }
+                aliasTaint.setRealInstanceClass(stackAlias.getRealInstanceClass());
+                frame.setValue(frame.getStackLocation(index), aliasTaint);
+                written = true;
+            }
+            if (written) {
+                MUST_ALIAS_WRITES.incrementAndGet();
+                for (ValueNumber object : objects) {
+                    if (valueNumberFrame.getLoad(object) != null) {
+                        // the same field loaded twice gets one value number
+                        MUST_ALIAS_LOAD_WRITES.incrementAndGet();
+                        break;
+                    }
+                }
+            }
+        } catch (DataflowAnalysisException ex) {
+            throw new InvalidBytecodeException("Not enough values on the stack for the must-aliases", ex);
+        }
+    }
+
+    private static synchronized void registerMustAliasShutdownHook() {
+        if (mustAliasShutdownHook) {
+            return;
+        }
+        mustAliasShutdownHook = true;
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            @Override
+            public void run() {
+                System.err.println("findsecbugs.taint.mustalias mutations " + MUST_ALIAS_MUTATIONS.get()
+                        + " skips " + MUST_ALIAS_SKIPS.get() + " writes " + MUST_ALIAS_WRITES.get()
+                        + " load writes " + MUST_ALIAS_LOAD_WRITES.get());
+            }
+        }, "taint-must-alias"));
+    }
+
+    /**
+     * Returns the value numbers before the current instruction, null when they are not available
+     */
+    private ValueNumberFrame getValueNumberFrame() {
+        try {
+            ValueNumberDataflow valueNumberDataflow = Global.getAnalysisCache().getMethodAnalysis(
+                    ValueNumberDataflow.class, methodDescriptor);
+            ValueNumberFrame valueNumberFrame = valueNumberDataflow.getFactAtLocation(getLocation());
+            if (valueNumberFrame.isValid()) {
+                return valueNumberFrame;
+            }
+        } catch (CheckedAnalysisException ex) {
+            // no aliases without the value numbers
+        }
+        return null;
     }
 
     /**
